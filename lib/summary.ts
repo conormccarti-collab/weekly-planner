@@ -1,6 +1,7 @@
 import type { WeekViewData } from "@/lib/week-view-data";
 import type { Weekday } from "@/lib/time";
 import { addWorkingDays, daysBetweenDateStrs, formatHHMM } from "@/lib/time";
+import { isStale } from "@/lib/stale";
 
 /** v5 Stage 12f.2: "Overdue wording is 'overdue by N days'. 'Within 2 working days' applies only to future dates." */
 export function dueWording(dueOn: string, todayStr: string): string {
@@ -147,10 +148,17 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
   // v5 Stage 12f.3: "Every subtask shows its parent... Duplicates merged" —
   // a task can appear via both thisWeekTasks and everythingElseGroups
   // (e.g. due this week but genuinely unplaced), so dedupe by key first.
+  // v5 Stage 12d.4 fix: a task overdue by more than 14 days is Stale, not
+  // At risk — "not placed, not At risk." The gate at group-build time only
+  // catches a stale *deliverable* (root due date); a deliverable with no
+  // publish date at all can still have one genuinely stale subtask (its
+  // own internal due date, long past), which must be excluded here too,
+  // not just reworded.
   const deadlineCutoff = addWorkingDays(todayStr, 2, workingDays);
   const atRiskByKey = new Map<string, { name: string; parentName: string | null; dueOn: string }>();
   for (const t of [...data.thisWeekTasks, ...data.everythingElseGroups.flatMap((g) => g.tasks)]) {
     if (t.dueOn == null || t.dueOn > deadlineCutoff) continue;
+    if (isStale(t.dueOn, todayStr)) continue;
     atRiskByKey.set(`${t.source}:${t.reference}`, { name: t.name, parentName: t.parentName, dueOn: t.dueOn });
   }
   for (const t of atRiskByKey.values()) {

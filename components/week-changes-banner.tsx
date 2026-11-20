@@ -53,6 +53,16 @@ export function WeekChangesBanner({ initial }: { initial: WeekChanges }) {
           estimate pick) — added to Unplaced instead.
         </p>
       )}
+      {changes.staleToRemove.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs text-chalk">Now Stale (overdue by more than 14 days) — will come off Unplaced, not be placed:</p>
+          <ul className="mt-1 space-y-0.5 text-xs text-chalk-dim">
+            {changes.staleToRemove.map((s, i) => (
+              <li key={i}>{s.name}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mt-3 flex justify-end gap-2">
         <button onClick={() => setReviewing(false)} disabled={pending} className="text-xs text-chalk">
           Reject
@@ -60,7 +70,7 @@ export function WeekChangesBanner({ initial }: { initial: WeekChanges }) {
         <button
           onClick={() =>
             startTransition(async () => {
-              await applyWeekChanges(changes.weekStart, changes.newItems, changes.needsEstimate);
+              await applyWeekChanges(changes.weekStart, changes.newItems, changes.needsEstimate, changes.staleToRemove);
               setChanges(null);
             })
           }

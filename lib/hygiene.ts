@@ -21,12 +21,25 @@ export function isGenuinePipelineDeliverable(group: TaskGroup): boolean {
   return group.root.parent_gid == null && group.root.project_gids.includes(PIPELINE_PROJECT_GID);
 }
 
-/** v5 Stage 12d.4: "A task overdue by more than 14 days is Stale... listed once... in Hygiene." */
+/**
+ * v5 Stage 12d.4: "A task overdue by more than 14 days is Stale... listed
+ * once... in Hygiene." Checks the root (the deliverable's own publish
+ * date) and every plannable subtask (its own internal due date) — a
+ * deliverable with no publish date at all can still have one genuinely
+ * stale subtask of its own, which the root-only check would otherwise miss
+ * entirely.
+ */
 export function checkStale(group: TaskGroup, todayStr: string): HygieneFlag[] {
+  const flags: HygieneFlag[] = [];
   if (isStale(group.root.due_on, todayStr)) {
-    return [flag(group.root, `Stale — overdue since ${group.root.due_on}, needs a new date or closing`)];
+    flags.push(flag(group.root, `Stale — overdue since ${group.root.due_on}, needs a new date or closing`));
   }
-  return [];
+  for (const member of group.descendants) {
+    if (member.is_plannable && isStale(member.due_on, todayStr)) {
+      flags.push(flag(group.root, `Stale — ${member.name} overdue since ${member.due_on}, needs a new date or closing`));
+    }
+  }
+  return flags;
 }
 
 export type HygieneFlag = {

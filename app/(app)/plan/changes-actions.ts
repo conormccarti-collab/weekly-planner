@@ -27,6 +27,8 @@ export type WeekChanges = {
   weekStart: string;
   newItems: NewPlanItem[];
   needsEstimate: { source: "asana" | "personal"; reference: string; name: string }[];
+  /** v5 Stage 12d.4 fix: an existing Unplaced card for a task that's since gone Stale — never a placed block, so removing it never breaks "an accepted week's existing blocks are never touched." */
+  staleToRemove: { source: "asana" | "personal"; reference: string; name: string }[];
 };
 
 /**
@@ -47,9 +49,19 @@ export async function computeWeekChanges(weekStart: string): Promise<WeekChanges
 
   const inputs = await gatherWeekBuildInputs(supabase, user.id, weekStart, { treatAllExistingAsProtected: true });
 
+  // v5 Stage 12d.4 fix: an existing Unplaced card (day is null, never a
+  // placed/pinned block) for a task that's since become Stale — surfaced
+  // here for approval rather than silently deleted during a page render,
+  // and rather than silently left showing "Place…" controls for something
+  // that must never be placed.
+  const staleKeys = new Set(inputs.staleItems.map((s) => `${s.source}:${s.reference}`));
+  const staleToRemove = inputs.existingRows
+    .filter((r) => r.day == null && staleKeys.has(`${r.source}:${r.reference}`))
+    .map((r) => ({ source: r.source, reference: r.reference, name: inputs.staleItems.find((s) => s.reference === r.reference)?.name ?? r.reference }));
+
   // Every accepted row is protected by `treatAllExistingAsProtected`, so
   // `toRank` here is already exactly "eligible candidates with no row yet."
-  if (inputs.toRank.length === 0 && inputs.needsEstimatePick.length === 0) return null;
+  if (inputs.toRank.length === 0 && inputs.needsEstimatePick.length === 0 && staleToRemove.length === 0) return null;
 
   const ordered = orderCandidatesForPlacement(inputs.toRank);
   const { placements, unplaced } = proposeAutoPlacement(ordered, inputs.freeBlocksByDay, inputs.dayOrder, inputs.avoidSlotByKey);
@@ -72,14 +84,30 @@ export async function computeWeekChanges(weekStart: string): Promise<WeekChanges
     ...unplaced.map((u) => ({ source: u.source, reference: u.reference, name: inputs.nameByKey.get(`${u.source}:${u.reference}`) ?? u.reference })),
   ];
 
-  if (newItems.length === 0 && needsEstimate.length === 0) return null;
-  return { weekStart, newItems, needsEstimate };
+  if (newItems.length === 0 && needsEstimate.length === 0 && staleToRemove.length === 0) return null;
+  return { weekStart, newItems, needsEstimate, staleToRemove };
 }
 
-/** Approve: writes exactly the proposed new rows — every existing row is untouched. */
-export async function applyWeekChanges(weekStart: string, items: NewPlanItem[], needsEstimate: { source: "asana" | "personal"; reference: string }[]) {
+/** Approve: writes exactly the proposed new rows, and removes exactly the proposed stale Unplaced cards — every placed/pinned block is untouched either way. */
+export async function applyWeekChanges(
+  weekStart: string,
+  items: NewPlanItem[],
+  needsEstimate: { source: "asana" | "personal"; reference: string }[],
+  staleToRemove: { source: "asana" | "personal"; reference: string }[] = []
+) {
   const supabase = await createClient();
   const user = await requireUser(supabase);
+
+  for (const s of staleToRemove) {
+    await supabase
+      .from("plan_items")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("week_start", weekStart)
+      .eq("source", s.source)
+      .eq("reference", s.reference)
+      .is("day", null);
+  }
 
   const rows = [
     ...items.map((p) => ({

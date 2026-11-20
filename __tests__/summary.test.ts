@@ -156,10 +156,16 @@ describe("buildWeekSummaryFacts", () => {
     expect(facts.atRisk).toEqual([]);
   });
 
-  it("v5 Stage 12f.2: an overdue task says 'overdue by N days', not 'within 2 working days'", () => {
-    const task = makeTask({ name: "Old deliverable", dueOn: "2026-11-01" }); // today is 2026-11-16
+  it("v5 Stage 12f.2: an overdue task says 'overdue by N days', not 'within 2 working days' (overdue, but not yet Stale)", () => {
+    const task = makeTask({ name: "Old deliverable", dueOn: "2026-11-10" }); // today is 2026-11-16, 6 days overdue
     const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 9 * 60);
-    expect(facts.atRisk).toContain("Old deliverable is overdue by 15 days");
+    expect(facts.atRisk).toContain("Old deliverable is overdue by 6 days");
+  });
+
+  it("v5 Stage 12d.4 fix: a task overdue by more than 14 days is excluded from At risk entirely (Stale, not At risk) — the exact Tartan Design B2B case, where the parent deliverable has no due date at all", () => {
+    const task = makeTask({ name: "Pre-Edit Review & Brief", parentName: "Tartan Design B2B", dueOn: "2026-10-07" }); // today is 2026-11-16, 40 days overdue
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 9 * 60);
+    expect(facts.atRisk).toEqual([]);
   });
 
   it("v5 Stage 12f.3: an at-risk subtask shows its parent film name", () => {

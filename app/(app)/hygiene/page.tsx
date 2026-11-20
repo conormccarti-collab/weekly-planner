@@ -46,12 +46,26 @@ export default async function HygienePage() {
   }
 
   // v5 Stage 12d.4: "listed once in a 'Needs a new date or closing' panel"
-  // — the same stale deliverables, deduplicated, separate from the
-  // per-field flags list above.
-  const staleDeliverables = pipelineGroups
-    .filter((g) => isStale(g.root.due_on, todayStr))
-    .map((g) => ({ gid: g.root.gid, name: g.root.name, permalinkUrl: g.root.permalink_url, dueOn: g.root.due_on as string }))
-    .sort((a, b) => a.dueOn.localeCompare(b.dueOn));
+  // — the same stale items (deliverables, and individually stale subtasks
+  // of an otherwise-fine deliverable), separate from the per-field flags
+  // list above.
+  const staleDeliverables: { gid: string; name: string; permalinkUrl: string | null; dueOn: string }[] = [];
+  for (const group of pipelineGroups) {
+    if (isStale(group.root.due_on, todayStr)) {
+      staleDeliverables.push({ gid: group.root.gid, name: group.root.name, permalinkUrl: group.root.permalink_url, dueOn: group.root.due_on as string });
+    }
+    for (const member of group.descendants) {
+      if (member.is_plannable && isStale(member.due_on, todayStr)) {
+        staleDeliverables.push({
+          gid: member.gid,
+          name: `${group.root.name} — ${member.name}`,
+          permalinkUrl: member.permalink_url,
+          dueOn: member.due_on as string,
+        });
+      }
+    }
+  }
+  staleDeliverables.sort((a, b) => a.dueOn.localeCompare(b.dueOn));
 
   // v4 Stage 4a, brief 7.4a: "An unmatched shoot gets a Hygiene flag."
   const shootTasks = allTasks.filter((t) => t.is_shoot);

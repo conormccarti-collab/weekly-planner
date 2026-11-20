@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkUnmatchedStage, checkVideoType, isGenuinePipelineDeliverable } from "@/lib/hygiene";
+import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkStale, checkUnmatchedStage, checkVideoType, isGenuinePipelineDeliverable } from "@/lib/hygiene";
 import { PIPELINE_PROJECT_GID } from "@/lib/asana/projects";
 import type { TaskGroup, TaskRow } from "@/lib/asana/task-view";
 
@@ -194,5 +194,37 @@ describe("isGenuinePipelineDeliverable", () => {
   it("rejects an orphaned subtask whose real parent is completed or unsynced (it has a parent_gid of its own)", () => {
     const fakeRoot = task({ gid: "orphan", parent_gid: "gone", project_gids: [PIPELINE_PROJECT_GID], project_names: ["Visual Content Pipeline"] });
     expect(isGenuinePipelineDeliverable(group(fakeRoot))).toBe(false);
+  });
+});
+
+describe("checkStale", () => {
+  const today = "2026-11-20";
+
+  it("flags a stale root (the deliverable's own publish date, >14 days overdue)", () => {
+    const root = task({ gid: "root", name: "Tartan Design B2B", due_on: "2026-10-01" });
+    expect(checkStale({ root, descendants: [] }, today)).toEqual([
+      { gid: "root", name: "Tartan Design B2B", permalinkUrl: root.permalink_url, issue: "Stale — overdue since 2026-10-01, needs a new date or closing" },
+    ]);
+  });
+
+  it("v5 Stage 12d.4 fix: flags a stale subtask even when the root has no publish date at all (the exact Tartan Design B2B case)", () => {
+    const root = task({ gid: "root", name: "Tartan Design B2B", due_on: null });
+    const subtask = task({ gid: "sub", name: "Pre-Edit Review & Brief", due_on: "2026-10-07", is_plannable: true });
+    const flags = checkStale({ root, descendants: [subtask] }, today);
+    expect(flags).toEqual([
+      { gid: "root", name: "Tartan Design B2B", permalinkUrl: root.permalink_url, issue: "Stale — Pre-Edit Review & Brief overdue since 2026-10-07, needs a new date or closing" },
+    ]);
+  });
+
+  it("ignores a stale date on a non-plannable (container) subtask", () => {
+    const root = task({ gid: "root", due_on: null });
+    const container = task({ gid: "c", due_on: "2026-01-01", is_plannable: false });
+    expect(checkStale({ root, descendants: [container] }, today)).toEqual([]);
+  });
+
+  it("is empty when nothing is stale", () => {
+    const root = task({ gid: "root", due_on: "2026-11-25" });
+    const subtask = task({ gid: "sub", due_on: "2026-11-22", is_plannable: true });
+    expect(checkStale({ root, descendants: [subtask] }, today)).toEqual([]);
   });
 });

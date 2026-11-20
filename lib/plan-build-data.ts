@@ -46,7 +46,7 @@ export type WeekBuildInputs = {
   toRank: BuildCandidate[];
   inputHash: string;
   /** v5 Stage 12d.4: deliverables overdue by more than 14 days — never placed, never At risk. */
-  staleItems: { source: "asana"; reference: string; name: string; dueOn: string | null }[];
+  staleItems: { source: "asana" | "personal"; reference: string; name: string; dueOn: string | null }[];
   /** v5 Stage 12e.1: slots a user just rejected a block from — never re-proposed in the same slot. */
   avoidSlotByKey: Map<string, { day: string; startMinutes: number }>;
 };
@@ -155,7 +155,12 @@ export async function gatherWeekBuildInputs(
   );
   const staleGroups = inWorkflowGroups.filter((g) => isStale(g.root.due_on, todayStr));
   const visibleGroups = inWorkflowGroups.filter((g) => !isStale(g.root.due_on, todayStr));
-  const staleItems = staleGroups.map((g) => ({ source: "asana" as const, reference: g.root.gid, name: g.root.name, dueOn: g.root.due_on }));
+  const staleItems: WeekBuildInputs["staleItems"] = staleGroups.map((g) => ({
+    source: "asana",
+    reference: g.root.gid,
+    name: g.root.name,
+    dueOn: g.root.due_on,
+  }));
   const stageInfoByGroup = visibleGroups.map((g) => computeStageInfo(g));
   const taskByRef = new Map<string, TaskRow>();
   const stageInfoByRef = new Map<string, StageInfo>();
@@ -175,15 +180,29 @@ export async function gatherWeekBuildInputs(
     if (r.must) mustByKey.set(`${r.source}:${r.reference}`, true);
   }
 
+  // v5 Stage 12d.4 fix: staleness also applies per-task, not only per-root.
+  // A deliverable can have no publish date at all (so the root-level check
+  // above never catches it) while one of its own subtasks carries a real,
+  // long-overdue due date of its own (e.g. an Edit subtask due months ago)
+  // — that subtask is individually Stale and must not be placed, even
+  // though the rest of its deliverable is fine.
   const eligibleAsanaGids = new Set<string>();
   for (const [gid, task] of taskByRef) {
     if (task.is_container || !task.is_plannable) continue;
+    if (isStale(task.due_on, todayStr)) {
+      staleItems.push({ source: "asana", reference: gid, name: task.name, dueOn: task.due_on });
+      continue;
+    }
     const key = `asana:${gid}`;
     if (parkedKeys.has(key)) continue;
     const isMust = mustByKey.get(key) ?? false;
     if (isMust || isDueThisWeekOrOverdue(task.due_on, weekEndExclusive)) eligibleAsanaGids.add(gid);
   }
   const eligiblePersonal = personalTasks.filter((t) => {
+    if (isStale(t.due_on, todayStr)) {
+      staleItems.push({ source: "personal", reference: t.id, name: t.name, dueOn: t.due_on });
+      return false;
+    }
     const key = `personal:${t.id}`;
     if (parkedKeys.has(key)) return false;
     const isMust = mustByKey.get(key) ?? false;
