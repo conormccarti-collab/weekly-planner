@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { OFFICES } from "@/lib/brand-colors";
 
 const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -67,5 +67,58 @@ export async function saveSettings(formData: FormData) {
 
   // The Office picker sets the accent colour applied in the (app) layout —
   // revalidate the whole app shell, not just this page.
+  revalidatePath("/", "layout");
+}
+
+/**
+ * v4 Stage 1: estimate defaults are global config (no `user_id` on the
+ * table), so the signed-in user's own RLS session can't update it — only
+ * the existing "authenticated read" policy applies. The write itself goes
+ * through the service-role client (already used for OAuth-token storage
+ * elsewhere), after confirming a real session exists, same as every other
+ * action here. `estimate_history` logging stays on the normal client since
+ * that table is owner-scoped RLS.
+ */
+export async function updateEstimateDefault(videoType: string, stage: string, variant: string, hours: number) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
+  if (!user) {
+    throw new Error("Not signed in");
+  }
+  if (!Number.isFinite(hours) || hours < 0) {
+    throw new Error("Hours must be a non-negative number");
+  }
+
+  const { data: existing } = await supabase
+    .from("estimate_defaults")
+    .select("hours")
+    .eq("video_type", videoType)
+    .eq("stage", stage)
+    .eq("variant", variant)
+    .maybeSingle();
+
+  const { error: updateError } = await createServiceRoleClient()
+    .from("estimate_defaults")
+    .update({ hours })
+    .eq("video_type", videoType)
+    .eq("stage", stage)
+    .eq("variant", variant);
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  const { error: historyError } = await supabase.from("estimate_history").insert({
+    user_id: user.id,
+    source: "default",
+    reference: `${videoType}:${stage}:${variant}`,
+    task_type_key: `${videoType}:${stage}`,
+    old_hours: existing?.hours ?? null,
+    new_hours: hours,
+  });
+  if (historyError) {
+    throw new Error(historyError.message);
+  }
+
   revalidatePath("/", "layout");
 }

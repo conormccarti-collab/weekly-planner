@@ -37,7 +37,7 @@ export function checkVideoType(task: TaskRow): HygieneFlag[] {
   return [];
 }
 
-/** Brand blank (currently never read or shown elsewhere in the app). */
+/** Brand blank. Brand is also read for calendar block colour — see `brandColorsFor` in `components/calendar-grid.tsx`. */
 export function checkBrand(task: TaskRow): HygieneFlag[] {
   if (task.custom_fields["Brand"] == null) return [flag(task, "Brand is blank")];
   return [];

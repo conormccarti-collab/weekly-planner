@@ -92,3 +92,16 @@ export async function resolveEstimatesForTasks(
 
   return results;
 }
+
+export type EstimateDefaultRow = { video_type: string; stage: string; variant: string; hours: number; focus_type: string };
+
+/** v4 Stage 1: lists every row for Settings' editable-defaults table. */
+export async function loadAllEstimateDefaults(supabase: SupabaseClient): Promise<EstimateDefaultRow[]> {
+  const { data } = await supabase
+    .from("estimate_defaults")
+    .select("video_type, stage, variant, hours, focus_type")
+    .order("video_type")
+    .order("stage")
+    .order("variant");
+  return (data ?? []) as EstimateDefaultRow[];
+}

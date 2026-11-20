@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { loadSettings } from "@/lib/settings-data";
+import { loadAllEstimateDefaults } from "@/lib/estimates-data";
 import { SettingsForm } from "./settings-form";
+import { EstimateDefaultsForm } from "./estimate-defaults-form";
 import { ReconnectCalendarButton } from "@/components/reconnect-calendar-button";
 
 export default async function SettingsPage() {
@@ -10,6 +12,7 @@ export default async function SettingsPage() {
   const user = userData.user;
 
   const initial = user ? await loadSettings(supabase, user.id) : DEFAULT_SETTINGS;
+  const estimateDefaults = await loadAllEstimateDefaults(supabase);
 
   let calendarNeedsReconnect = false;
   if (user) {
@@ -26,9 +29,7 @@ export default async function SettingsPage() {
   return (
     <div>
       <h1 className="text-lg font-semibold">Settings</h1>
-      <p className="mt-1 text-sm text-chalk-dim">
-        Working pattern used to compute capacity. Estimate defaults arrive in a later stage.
-      </p>
+      <p className="mt-1 text-sm text-chalk-dim">Working pattern used to compute capacity.</p>
 
       <section className="mt-6 max-w-xl">
         <h2 className="text-sm font-semibold text-chalk">Connections</h2>
@@ -52,6 +53,8 @@ export default async function SettingsPage() {
       <div className="mt-6">
         <SettingsForm initial={initial} />
       </div>
+
+      <EstimateDefaultsForm initial={estimateDefaults} />
     </div>
   );
 }

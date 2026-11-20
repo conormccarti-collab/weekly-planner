@@ -115,7 +115,7 @@ export function CalendarGrid({
         {label}
         {proposedLabel && <span className="ml-2 rounded bg-warning-chip px-1.5 py-0.5 text-[10px] font-medium text-raven">{proposedLabel}</span>}
       </h2>
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-5">
         {workingDays.map((day) => {
           const windowHeight = (day.windowEndMinutes - day.windowStartMinutes) * PX_PER_MINUTE;
           const blocks = blocksByDay.get(day.dateStr) ?? [];
