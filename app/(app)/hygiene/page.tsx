@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkShootInCalendar, checkVideoType, type HygieneFlag } from "@/lib/hygiene";
+import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkShootInCalendar, checkVideoType, isGenuinePipelineDeliverable, type HygieneFlag } from "@/lib/hygiene";
 import { expandShootDateSpan, matchShootToCalendarEvent, type CalendarEventForMatch } from "@/lib/asana/shoots";
 import { env } from "@/lib/env";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
@@ -27,11 +27,15 @@ export default async function HygienePage() {
   const allTasks = (data as TaskRow[]) ?? [];
   const visibleGroups = groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root));
 
+  // v4: "ignore tasks with a completed or unsynced parent, restrict to
+  // Visual Content Pipeline." Production & Shoots has its own check below.
+  const pipelineGroups = visibleGroups.filter(isGenuinePipelineDeliverable);
+
   // v2 (18 Nov 2026): hygiene only ever flags the parent deliverable, never
   // a subtask on its own row — Brand/Video Type/column checks run on the
   // root only; checkGroupDates already attributes its findings to the root.
   const flags: HygieneFlag[] = [];
-  for (const group of visibleGroups) {
+  for (const group of pipelineGroups) {
     flags.push(...checkGroupDates(group));
     flags.push(...checkColumnMatchesStage(group));
     flags.push(...checkBrand(group.root));
@@ -66,7 +70,7 @@ export default async function HygienePage() {
   }
 
   const byTask = new Map<string, { name: string; permalinkUrl: string | null; dueOn: string | null; issues: string[] }>();
-  const dueOnByGid = new Map(visibleGroups.map((g) => [g.root.gid, g.root.due_on]));
+  const dueOnByGid = new Map(pipelineGroups.map((g) => [g.root.gid, g.root.due_on]));
   for (const f of flags) {
     const entry = byTask.get(f.gid) ?? { name: f.name, permalinkUrl: f.permalinkUrl, dueOn: dueOnByGid.get(f.gid) ?? null, issues: [] };
     entry.issues.push(f.issue);
@@ -93,9 +97,11 @@ export default async function HygienePage() {
     <div>
       <h1 className="text-lg font-semibold">Hygiene</h1>
       <p className="mt-1 text-sm text-chalk-dim">
-        Data issues on parent deliverables only (not completed, not Backlog, not individual subtasks). Covers
-        Brand, Video Type, missing dates, and a card sitting in the wrong column for its earliest unfinished
-        stage. Due this week or overdue first, then upcoming-dated, then undated.
+        Data issues on Visual Content Pipeline deliverables only (not completed, not Backlog, not an orphaned
+        subtask whose own parent is completed or unsynced, not individual subtasks otherwise). Covers Brand,
+        Video Type, missing dates, a card sitting in the wrong column for its earliest unfinished stage, and a
+        Production &amp; Shoots shoot not matched to a calendar event. Due this week or overdue first, then
+        upcoming-dated, then undated.
       </p>
       <div className="mt-3">
         <SyncBar asana={asana} calendar={calendar} />

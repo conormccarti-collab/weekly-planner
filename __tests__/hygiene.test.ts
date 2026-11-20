@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkUnmatchedStage, checkVideoType } from "@/lib/hygiene";
+import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkUnmatchedStage, checkVideoType, isGenuinePipelineDeliverable } from "@/lib/hygiene";
 import type { TaskGroup, TaskRow } from "@/lib/asana/task-view";
 
 function task(overrides: Partial<TaskRow> & { gid: string }): TaskRow {
@@ -171,5 +171,26 @@ describe("checkColumnMatchesStage", () => {
     const root = task({ gid: "root", is_container: true, section_names: ["  edit  "] });
     const edit = task({ gid: "edit", name: "Edit" });
     expect(checkColumnMatchesStage(group(root, [edit]))).toEqual([]);
+  });
+});
+
+describe("isGenuinePipelineDeliverable", () => {
+  function group(root: TaskRow, descendants: TaskRow[] = []): TaskGroup {
+    return { root, descendants };
+  }
+
+  it("accepts a genuine root in Visual Content Pipeline", () => {
+    const root = task({ gid: "root", project_names: ["Visual Content Pipeline"] });
+    expect(isGenuinePipelineDeliverable(group(root))).toBe(true);
+  });
+
+  it("rejects a task outside Visual Content Pipeline", () => {
+    const root = task({ gid: "root", project_names: ["Production & Shoots"] });
+    expect(isGenuinePipelineDeliverable(group(root))).toBe(false);
+  });
+
+  it("rejects an orphaned subtask whose real parent is completed or unsynced (it has a parent_gid of its own)", () => {
+    const fakeRoot = task({ gid: "orphan", parent_gid: "gone", project_names: ["Visual Content Pipeline"] });
+    expect(isGenuinePipelineDeliverable(group(fakeRoot))).toBe(false);
   });
 });

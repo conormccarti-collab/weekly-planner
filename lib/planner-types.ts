@@ -44,4 +44,6 @@ export type EverythingElseGroup = {
   isContainer: boolean;
   nothingLeftToPlan: boolean;
   tasks: PlannerTask[];
+  /** v4 Stage 5, brief 8/3.3: shared series name for a Discovery batch/episode ("Series: Batch 1", "Series: Ep 3"), or null for an ordinary deliverable. */
+  seriesName: string | null;
 };

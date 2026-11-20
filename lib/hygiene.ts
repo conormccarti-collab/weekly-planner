@@ -1,6 +1,20 @@
 import { detectStage, STAGES, type Stage } from "@/lib/asana/stage";
 import { videoTypeOf } from "@/lib/asana/stage-context";
+import { PIPELINE_PROJECT_NAME } from "@/lib/asana/projects";
 import type { TaskGroup, TaskRow } from "@/lib/asana/task-view";
+
+/**
+ * v4: "ignore tasks with a completed or unsynced parent, restrict to Visual
+ * Content Pipeline." `groupTasksByRoot` can only walk up to a real parent
+ * that was itself fetched — when a subtask's parent is completed (excluded
+ * by the sync query's own filter) or was never synced at all, that subtask
+ * becomes its own "root" by default. Checking it as if it were a genuine
+ * deliverable is exactly the noise this excludes: a non-null `parent_gid`
+ * on the root is the tell, since a real root never has one.
+ */
+export function isGenuinePipelineDeliverable(group: TaskGroup): boolean {
+  return group.root.parent_gid == null && group.root.project_names.includes(PIPELINE_PROJECT_NAME);
+}
 
 export type HygieneFlag = {
   gid: string;

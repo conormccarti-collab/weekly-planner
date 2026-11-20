@@ -13,9 +13,10 @@ import { expandShootDateSpan, matchShootToCalendarEvent, type CalendarEventForMa
 import type { EverythingElseGroup, Placement, PlannerTask } from "@/lib/planner-types";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal, type Weekday } from "@/lib/time";
 import { env } from "@/lib/env";
-import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkVideoType } from "@/lib/hygiene";
+import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkVideoType, isGenuinePipelineDeliverable } from "@/lib/hygiene";
 import { isBlocked } from "@/lib/asana/dependencies";
 import { computeDeliverableLatestStarts, flatCapacityForDate } from "@/lib/back-scheduling-data";
+import { seriesNameOf } from "@/lib/asana/discovery";
 import { orderCandidatesForPlacement, type AutoPlaceCandidate } from "@/lib/auto-placement";
 import { resolvePriority } from "@/lib/priority";
 import { STAGES } from "@/lib/asana/stage";
@@ -345,6 +346,8 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   const weekHygieneIssues: string[] = [];
   for (const group of visibleGroups) {
     if (!thisWeekRootRefs.has(group.root.gid)) continue;
+    // Same scoping as the Hygiene screen.
+    if (!isGenuinePipelineDeliverable(group)) continue;
     for (const f of [...checkGroupDates(group), ...checkColumnMatchesStage(group), ...checkBrand(group.root), ...checkVideoType(group.root)]) {
       weekHygieneIssues.push(`${f.name}: ${f.issue}`);
     }
@@ -383,6 +386,7 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
         isContainer: group.root.is_container,
         nothingLeftToPlan,
         tasks,
+        seriesName: seriesNameOf(group.root.name),
       } satisfies EverythingElseGroup;
     })
     .filter((g): g is EverythingElseGroup => !!g);
@@ -400,6 +404,7 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
       isContainer: true,
       nothingLeftToPlan: false,
       tasks: personalElseTasks,
+      seriesName: null,
     });
   }
   everythingElseGroups.sort((a, b) => a.rootName.localeCompare(b.rootName));
