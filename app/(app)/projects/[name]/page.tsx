@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { preferredProjectName } from "@/lib/asana/projects";
+import { projectLabelsFor } from "@/lib/asana/projects";
 import { mondayOf, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 import { ProjectNotes } from "@/components/project-notes";
@@ -29,7 +29,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const allTasks = (data as TaskRow[]) ?? [];
   const groups = groupTasksByRoot(allTasks)
     .filter((g) => !isInBacklog(g.root))
-    .filter((g) => preferredProjectName(g.root.project_names) === projectName);
+    .filter((g) => projectLabelsFor(g.root.project_names).includes(projectName));
 
   const plannableTasks = groups.flatMap((g) => [g.root, ...g.descendants]).filter((t) => t.is_plannable);
   const gids = plannableTasks.map((t) => t.gid);

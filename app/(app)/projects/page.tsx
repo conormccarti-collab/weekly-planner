@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { preferredProjectName } from "@/lib/asana/projects";
+import { projectLabelsFor } from "@/lib/asana/projects";
 import { loadSyncStatuses } from "@/lib/sync-status";
 import { SyncBar } from "@/components/sync-bar";
 
@@ -25,12 +25,17 @@ export default async function ProjectsPage() {
   const allTasks = (data as TaskRow[]) ?? [];
   const visibleGroups = groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root));
 
+  // v4: a task counts under every real project it's actually in — never a
+  // joined "A, B" label, which used to invent a phantom third "project"
+  // and steal its tasks away from both A and B's own entries.
   const countByProject = new Map<string, number>();
   for (const group of visibleGroups) {
-    const label = preferredProjectName(group.root.project_names);
-    if (!label) continue;
+    const labels = projectLabelsFor(group.root.project_names);
+    if (labels.length === 0) continue;
     const plannableCount = [group.root, ...group.descendants].filter((t) => t.is_plannable).length;
-    countByProject.set(label, (countByProject.get(label) ?? 0) + plannableCount);
+    for (const label of labels) {
+      countByProject.set(label, (countByProject.get(label) ?? 0) + plannableCount);
+    }
   }
 
   const projects = [...countByProject.entries()].sort((a, b) => a[0].localeCompare(b[0]));

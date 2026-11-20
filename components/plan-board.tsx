@@ -251,15 +251,17 @@ export function PlanBoard({
             <li
               key={`${task.source}:${task.reference}`}
               draggable
-              onDragStart={() =>
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", `${task.source}:${task.reference}`);
+                e.dataTransfer.effectAllowed = "move";
                 setDragging({
                   kind: "place",
                   source: task.source,
                   reference: task.reference,
                   durationMinutes: Math.max(15, Math.round(((task.estimateHours ?? 0.25) * 60) / 15) * 15),
-                })
-              }
-              className="flex flex-wrap items-start justify-between gap-2 py-2 text-sm"
+                });
+              }}
+              className="flex flex-wrap select-none items-start justify-between gap-2 py-2 text-sm"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span>{task.name}</span>

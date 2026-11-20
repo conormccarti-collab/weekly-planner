@@ -112,6 +112,14 @@ export function CalendarGrid({
     return bands;
   }
 
+  /** Hour marks within a day's window, for the time ruler. */
+  function hourMarksFor(day: DayCapacityView): number[] {
+    const marks: number[] = [];
+    const firstHour = Math.ceil(day.windowStartMinutes / 60) * 60;
+    for (let m = firstHour; m < day.windowEndMinutes; m += 60) marks.push(m);
+    return marks;
+  }
+
   function dropMinutes(e: React.DragEvent<HTMLDivElement>, day: DayCapacityView): number {
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
@@ -194,6 +202,18 @@ export function CalendarGrid({
                   />
                 ))}
 
+                {hourMarksFor(day).map((m) => (
+                  <div
+                    key={m}
+                    className="pointer-events-none absolute inset-x-0 border-t border-border/40"
+                    style={{ top: (m - day.windowStartMinutes) * PX_PER_MINUTE }}
+                  >
+                    <span className="absolute left-0 top-0 -translate-y-1/2 bg-slate px-0.5 text-[8px] text-chalk-dim">
+                      {formatHHMM(m)}
+                    </span>
+                  </div>
+                ))}
+
                 {blocks.map(({ task, placement }) => {
                   const top = (placement.startMinutes - day.windowStartMinutes) * PX_PER_MINUTE;
                   const height = Math.max(14, (placement.endMinutes - placement.startMinutes) * PX_PER_MINUTE);
@@ -205,15 +225,20 @@ export function CalendarGrid({
                     <div
                       key={placement.id}
                       draggable
-                      onDragStart={() =>
+                      onDragStart={(e) => {
+                        // Some browsers need real drag data set in
+                        // dragstart for drop targets elsewhere on the page
+                        // to reliably receive dragover/drop at all.
+                        e.dataTransfer.setData("text/plain", placement.id);
+                        e.dataTransfer.effectAllowed = "move";
                         setDragging({
                           kind: "move",
                           blockId: placement.id,
                           source: task.source,
                           reference: task.reference,
                           durationMinutes: placement.endMinutes - placement.startMinutes,
-                        })
-                      }
+                        });
+                      }}
                       onDragOver={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -233,7 +258,8 @@ export function CalendarGrid({
                         setDragging(null);
                       }}
                       onClick={() => setExpandedBlockId(expanded ? null : placement.id)}
-                      className={`absolute left-0.5 cursor-pointer rounded border px-1 text-[10px] ${
+                      title={task.parentName ? `${task.parentName} — ${task.name}` : task.name}
+                      className={`absolute left-0.5 cursor-pointer select-none rounded border px-1 text-[10px] ${
                         isProposed ? "border-dashed border-warning" : "border-border"
                       } ${expanded ? "overflow-visible" : "overflow-hidden"}`}
                       style={{
@@ -244,14 +270,21 @@ export function CalendarGrid({
                         borderLeftColor: brand.edge,
                         borderLeftWidth: 3,
                         borderLeftStyle: brand.dashed ? "dashed" : "solid",
-                        ...(expanded
-                          ? { top, minHeight: height, width: 160, zIndex: 20 }
-                          : { top, height, right: "2px", zIndex: 1 }),
+                        // Expanded stays within the day column's own width
+                        // (the `left-0.5` class plus this same `right: 2px`
+                        // already bound it in both states) rather than a
+                        // fixed px width wider than the column, which used
+                        // to spill into the next day.
+                        ...(expanded ? { top, minHeight: height, right: "2px", zIndex: 20 } : { top, height, right: "2px", zIndex: 1 }),
                       }}
                     >
                       <div className="truncate font-medium text-chalk">
-                        {task.name}
-                        {placement.isFinal && <span className="ml-1 rounded bg-slate px-1 text-[8px] text-chalk">final</span>}
+                        {task.parentName ? `${task.parentName} — ${task.name}` : task.name}
+                        {placement.isFinal && (
+                          <span title="This task's last block this week" className="ml-1 rounded bg-slate px-1 text-[8px] text-chalk">
+                            final
+                          </span>
+                        )}
                         {isSuggested && <span className="ml-1 rounded bg-warning-chip px-1 text-[8px] text-raven">suggested</span>}
                         {task.isBlocked && (
                           <span title="Still waiting on a blocker" className="ml-1 rounded bg-danger-tint px-1 text-[8px] text-danger">
@@ -334,6 +367,11 @@ function BlockEditor({
 
   const dayView = allDays.find((d) => d.dateStr === day);
   const options = dayView ? timeOptions(dayView.windowStartMinutes, dayView.windowEndMinutes) : [];
+  // The block's real duration must always be a selectable option, even when
+  // it isn't one of the round presets (e.g. 3.5h/210min) — otherwise the
+  // select shows no matching option (defaulting visually to the first one,
+  // 0.25h) while the real value sits unseen underneath.
+  const durationOptions = [...new Set([15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480, duration])].sort((a, b) => a - b);
 
   function save() {
     onMove(placement.id, task.source, task.reference, day, start, start + duration, {
@@ -377,14 +415,14 @@ function BlockEditor({
           onChange={(e) => setDuration(Number(e.target.value))}
           className="w-full rounded border border-border bg-slate px-0.5 text-chalk"
         >
-          {[15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480].map((d) => (
+          {durationOptions.map((d) => (
             <option key={d} value={d}>
               {(d / 60).toFixed(2).replace(/\.?0+$/, "")}h
             </option>
           ))}
         </select>
       </div>
-      <div className="flex items-center justify-between gap-1">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <button onClick={save} className="rounded bg-accent px-1.5 py-0.5 text-on-accent">
           Save
         </button>
@@ -436,7 +474,7 @@ function BlockEditor({
         </label>
         <button
           onClick={() => onRemove(placement.id, task.source, task.reference, task.must)}
-          className="text-chalk-dim hover:text-danger"
+          className="ml-auto text-chalk-dim hover:text-danger"
         >
           {isProposed ? "Reject" : "Remove"}
         </button>
