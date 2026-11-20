@@ -62,6 +62,7 @@ export default async function WeekPage() {
           followingDays={data.followingCapacityDays}
           thisWeekTasks={data.thisWeekTasks}
           shoots={data.shoots}
+          rejectedKeys={data.rejectedKeys}
         />
         <EverythingElseList weekStart={data.weekStart} groups={data.everythingElseGroups} parkedGids={data.parkedKeys} />
       </div>

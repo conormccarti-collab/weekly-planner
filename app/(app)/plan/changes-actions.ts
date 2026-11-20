@@ -52,7 +52,7 @@ export async function computeWeekChanges(weekStart: string): Promise<WeekChanges
   if (inputs.toRank.length === 0 && inputs.needsEstimatePick.length === 0) return null;
 
   const ordered = orderCandidatesForPlacement(inputs.toRank);
-  const { placements, unplaced } = proposeAutoPlacement(ordered, inputs.freeBlocksByDay, inputs.dayOrder);
+  const { placements, unplaced } = proposeAutoPlacement(ordered, inputs.freeBlocksByDay, inputs.dayOrder, inputs.avoidSlotByKey);
 
   const suggestedByKey = new Map(inputs.candidates.map((c) => [`${c.source}:${c.reference}`, c.isSuggested]));
   const newItems: NewPlanItem[] = placements.map((p) => ({

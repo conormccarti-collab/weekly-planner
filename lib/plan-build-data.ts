@@ -47,6 +47,8 @@ export type WeekBuildInputs = {
   inputHash: string;
   /** v5 Stage 12d.4: deliverables overdue by more than 14 days — never placed, never At risk. */
   staleItems: { source: "asana"; reference: string; name: string; dueOn: string | null }[];
+  /** v5 Stage 12e.1: slots a user just rejected a block from — never re-proposed in the same slot. */
+  avoidSlotByKey: Map<string, { day: string; startMinutes: number }>;
 };
 
 /**
@@ -111,6 +113,22 @@ export async function gatherWeekBuildInputs(
     metaRows.filter((r) => r.remaining_hours != null).map((r) => [`${r.source}:${r.reference}`, Number(r.remaining_hours)])
   );
   const existingRows = (existingResult.data ?? []) as ExistingDbRow[];
+
+  // v5 Stage 12e.1: "regeneration does not put it back in the same slot" a
+  // user just rejected it from. A separate, best-effort read (not part of
+  // the throw-on-error batch above) — migration 0024 may not be applied
+  // yet, and a missing avoid-slot is a silent no-op, not a build failure.
+  const avoidSlotByKey = new Map<string, { day: string; startMinutes: number }>();
+  const { data: rejectionRows } = await supabase
+    .from("plan_events")
+    .select("source, reference, day, start_time")
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .eq("event_type", "rejected");
+  for (const r of rejectionRows ?? []) {
+    if (r.day == null || r.start_time == null) continue;
+    avoidSlotByKey.set(`${r.source}:${r.reference}`, { day: r.day as string, startMinutes: parseHHMM(r.start_time as string) });
+  }
 
   // v5 Stage 12c: a fingerprint of every raw input the build depends on, so
   // `refreshDraftWeek` can tell "nothing changed since last time" and skip
@@ -354,5 +372,5 @@ export async function gatherWeekBuildInputs(
     completedByGid = new Map((blockerRows ?? []).map((r) => [r.gid as string, r.completed as boolean]));
   }
 
-  return { candidates, needsEstimatePick, nameByKey, mustByKey, existingRows, protectedKeys, freeBlocksByDay, dayOrder, weekCapacityHours, completedByGid, toRank, inputHash, staleItems };
+  return { candidates, needsEstimatePick, nameByKey, mustByKey, existingRows, protectedKeys, freeBlocksByDay, dayOrder, weekCapacityHours, completedByGid, toRank, inputHash, staleItems, avoidSlotByKey };
 }

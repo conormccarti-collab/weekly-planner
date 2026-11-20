@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   placeBlock,
   moveBlock,
@@ -13,6 +13,7 @@ import {
   markNotDone,
   confirmSuggestedEstimate,
   approveDraftBlock,
+  undoReject,
 } from "@/app/(app)/plan/actions";
 import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { setTaskEstimate } from "@/app/(app)/tasks/actions";
@@ -42,6 +43,7 @@ export function PlanBoard({
   followingDays,
   thisWeekTasks,
   shoots,
+  rejectedKeys = new Set(),
 }: {
   weekStart: string;
   weekStatus: "draft" | "saved";
@@ -50,6 +52,8 @@ export function PlanBoard({
   followingDays: DayCapacityView[];
   thisWeekTasks: PlannerTask[];
   shoots: ShootMarker[];
+  /** v5 Stage 12e.1: tasks rejected from a slot this week — "won't return to that slot" until a new build genuinely changes something. */
+  rejectedKeys?: Set<string>;
 }) {
   const [, startTransition] = useTransition();
   const [dragging, setDragging] = useState<Dragging | null>(null);
@@ -57,19 +61,21 @@ export function PlanBoard({
   const [warning, setWarning] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [dueDateProposal, setDueDateProposal] = useState<DueDateProposal | null>(null);
+  const [removedBlock, setRemovedBlock] = useState<
+    { source: Source; reference: string; name: string; weekStart: string; must: boolean; day: string; startMinutes: number; endMinutes: number } | null
+  >(null);
+  const removedBlockTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const allDays = [...days, ...followingDays];
   const unplaced = thisWeekTasks.filter((t) => t.placements.length === 0);
 
-  function runAction<T extends { warning?: string } | void>(
-    action: () => Promise<T>,
-    onResult?: (result: T) => void
-  ) {
+  function runAction<T>(action: () => Promise<T>, onResult?: (result: T) => void) {
     startTransition(async () => {
       try {
         const result = await action();
-        if (result?.warning) {
-          setWarning(result.warning);
+        const warning = (result as { warning?: string } | undefined)?.warning;
+        if (warning) {
+          setWarning(warning);
           setTimeout(() => setWarning(null), 6000);
         }
         onResult?.(result);
@@ -106,10 +112,34 @@ export function PlanBoard({
   }
 
   function remove(blockId: string, source: Source, reference: string, must: boolean) {
-    const week = thisWeekTasks
-      .flatMap((t) => t.placements)
-      .find((p) => p.id === blockId);
-    runAction(() => removeBlock(week ? mondayOf(week.day) : weekStart, blockId, source, reference, must));
+    const task = thisWeekTasks.find((t) => t.placements.some((p) => p.id === blockId));
+    const placement = task?.placements.find((p) => p.id === blockId);
+    const removeWeekStart = placement ? mondayOf(placement.day) : weekStart;
+    runAction(
+      () => removeBlock(removeWeekStart, blockId, source, reference, must),
+      (result) => {
+        if (result?.removedSlot) {
+          setRemovedBlock({
+            source,
+            reference,
+            name: task?.name ?? "Task",
+            weekStart: removeWeekStart,
+            must,
+            ...result.removedSlot,
+          });
+          if (removedBlockTimeoutRef.current) clearTimeout(removedBlockTimeoutRef.current);
+          removedBlockTimeoutRef.current = setTimeout(() => setRemovedBlock(null), 8000);
+        }
+      }
+    );
+  }
+
+  function undoRemove() {
+    if (!removedBlock) return;
+    const { source, reference, weekStart: ws, day, startMinutes, endMinutes, must } = removedBlock;
+    setRemovedBlock(null);
+    if (removedBlockTimeoutRef.current) clearTimeout(removedBlockTimeoutRef.current);
+    runAction(() => undoReject(ws, source, reference, day, startMinutes, endMinutes, must));
   }
 
   function toggleDone(blockId: string, status: string, hours: number) {
@@ -189,6 +219,16 @@ export function PlanBoard({
         </div>
       )}
       <WriteBackDueDateReview proposal={dueDateProposal} onDone={() => setDueDateProposal(null)} />
+      {removedBlock && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded border border-border bg-surface-hover px-2 py-1 text-xs text-chalk">
+          <span>
+            Removed {removedBlock.name} from {removedBlock.day} {formatHHMM(removedBlock.startMinutes)}.
+          </span>
+          <button onClick={undoRemove} className="font-medium text-info underline">
+            Undo
+          </button>
+        </div>
+      )}
       <div className="mb-3 flex items-center justify-end gap-2">
         {copied && <span className="text-xs text-success">Copied</span>}
         {weekStatus === "saved" && <span className="text-xs text-chalk-dim">Accepted</span>}
@@ -273,6 +313,7 @@ export function PlanBoard({
                   durationMinutes: Math.max(15, Math.round(((task.estimateHours ?? 0.25) * 60) / 15) * 15),
                 });
               }}
+              onDragEnd={() => setDragging(null)}
               className="flex flex-wrap select-none items-start justify-between gap-2 py-2 text-sm"
             >
               <div className="flex flex-wrap items-center gap-2">
@@ -290,6 +331,11 @@ export function PlanBoard({
                 )}
                 {task.dueOn && <span className="text-xs text-chalk-dim">due {task.dueOn}</span>}
                 <span className="text-xs text-chalk-dim">{task.estimateDisplay}</span>
+                {rejectedKeys.has(`${task.source}:${task.reference}`) && (
+                  <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-chalk-dim">
+                    Rejected — won&apos;t return to that slot
+                  </span>
+                )}
                 {task.source === "asana" && task.estimateAmbiguousOptions && task.estimateAmbiguousOptions.length > 0 && (
                   <span className="flex items-center gap-1">
                     {task.estimateAmbiguousOptions.map((option) => (

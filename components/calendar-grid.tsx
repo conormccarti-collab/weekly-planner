@@ -81,6 +81,12 @@ export function CalendarGrid({
 }) {
   const workingDays = days.filter((d) => d.isWorkingDay);
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
+  // v5 Stage 12e.2: "Show a drop-target highlight and a ghost of the
+  // block." Local, visual-only state — cleared on drop/leave, never
+  // triggers a refetch. Only updated when the snapped-to-15-min value
+  // actually changes, so a drag doesn't re-render on every pixel of mouse
+  // movement.
+  const [dragOver, setDragOver] = useState<{ day: string; startMinutes: number } | null>(null);
 
   const blocksByDay = new Map<string, BlockEntry[]>();
   const weekDateStrs = new Set(days.map((d) => d.dateStr));
@@ -170,11 +176,27 @@ export function CalendarGrid({
                 </div>
               ))}
               <div
-                className="relative"
+                className={`relative ${dragOver?.day === day.dateStr ? "bg-surface-hover" : ""}`}
                 style={{ height: windowHeight }}
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!dragging) return;
+                  const start = dropMinutes(e, day);
+                  if (dragOver?.day !== day.dateStr || dragOver?.startMinutes !== start) {
+                    setDragOver({ day: day.dateStr, startMinutes: start });
+                  }
+                }}
+                onDragLeave={(e) => {
+                  // Only clear when truly leaving this column, not just
+                  // moving between its own child elements (which also fire
+                  // dragleave) — relatedTarget stays inside on those.
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    setDragOver((prev) => (prev?.day === day.dateStr ? null : prev));
+                  }
+                }}
                 onDrop={(e) => {
                   e.preventDefault();
+                  setDragOver(null);
                   if (!dragging) return;
                   const start = dropMinutes(e, day);
                   const end = start + dragging.durationMinutes;
@@ -238,6 +260,12 @@ export function CalendarGrid({
                           reference: task.reference,
                           durationMinutes: placement.endMinutes - placement.startMinutes,
                         });
+                      }}
+                      onDragEnd={() => {
+                        // Cancelled (dropped outside any valid target) — a
+                        // real drop already clears both via its own handler.
+                        setDragging(null);
+                        setDragOver(null);
                       }}
                       onDragOver={(e) => {
                         e.preventDefault();
@@ -314,6 +342,21 @@ export function CalendarGrid({
                     </div>
                   );
                 })}
+
+                {dragging && dragOver?.day === day.dateStr && (
+                  <div
+                    className="pointer-events-none absolute left-0.5 right-0.5 rounded border-2 border-dashed border-info bg-info-tint/50"
+                    style={{
+                      top: (dragOver.startMinutes - day.windowStartMinutes) * PX_PER_MINUTE,
+                      height: Math.max(14, dragging.durationMinutes * PX_PER_MINUTE),
+                      zIndex: 30,
+                    }}
+                  >
+                    <span className="block truncate px-1 text-[9px] font-medium text-chalk">
+                      {formatHHMM(dragOver.startMinutes)}–{formatHHMM(dragOver.startMinutes + dragging.durationMinutes)}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           );

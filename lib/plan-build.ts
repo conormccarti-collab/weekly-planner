@@ -1,4 +1,4 @@
-import { orderCandidatesForPlacement, proposeAutoPlacement, type AutoPlaceCandidate, type FreeBlock, type ProposedPlacement } from "@/lib/auto-placement";
+import { orderCandidatesForPlacement, proposeAutoPlacement, type AutoPlaceCandidate, type AvoidSlot, type FreeBlock, type ProposedPlacement } from "@/lib/auto-placement";
 import { proposeOverCapacityMoves } from "@/lib/over-capacity";
 import { isBlocked } from "@/lib/asana/dependencies";
 
@@ -95,7 +95,8 @@ export function buildWeekPlan(
   freeBlocksByDay: Map<string, FreeBlock[]>,
   dayOrder: string[],
   weekCapacityHours: number,
-  completedByGid: Map<string, boolean>
+  completedByGid: Map<string, boolean>,
+  avoidSlotByKey?: Map<string, AvoidSlot>
 ): BuildResult {
   const stillUnplaced: BuildResult["stillUnplaced"] = [];
   const eligible: BuildCandidate[] = [];
@@ -117,7 +118,7 @@ export function buildWeekPlan(
   const moveKeys = new Set(overCapacity.toMove.map(keyOf));
   const toPlace = ordered.filter((c) => !moveKeys.has(keyOf(c)));
 
-  const { placements, unplaced } = proposeAutoPlacement(toPlace, freeBlocksByDay, dayOrder);
+  const { placements, unplaced } = proposeAutoPlacement(toPlace, freeBlocksByDay, dayOrder, avoidSlotByKey);
 
   const suggestedByKey = new Map(candidates.map((c) => [keyOf(c), c.isSuggested]));
   const finalPlacements = placements.map((p) => ({ ...p, isSuggested: suggestedByKey.get(keyOf(p)) ?? false }));

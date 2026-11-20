@@ -82,6 +82,7 @@ function makeData(overrides: Partial<WeekViewData> = {}): WeekViewData {
     breakdown: [],
     saveRefs: [],
     shoots: [],
+    rejectedKeys: new Set(),
     thisWeekOnlyKeys: new Set(),
     workingDays: MON_TO_FRI,
     followingWeekUnplaced: [],
@@ -127,7 +128,7 @@ describe("buildWeekSummaryFacts", () => {
       ],
     });
     const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 13 * 60);
-    expect(facts.today).toEqual({ plannedHours: 2, capacityHours: 7, doneHours: 1.5 });
+    expect(facts.today).toEqual({ plannedHours: 2, capacityHours: 7, doneHours: 1.5, zeroCapacityReason: null });
   });
 
   it("flags a block that ended without being marked done, excluding done/behind", () => {
@@ -146,13 +147,103 @@ describe("buildWeekSummaryFacts", () => {
   it("flags a deadline within two working days", () => {
     const task = makeTask({ name: "Deliver cut", dueOn: "2026-11-18" });
     const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 9 * 60);
-    expect(facts.atRisk).toContain("Deliver cut is due 2026-11-18 (within 2 working days)");
+    expect(facts.atRisk).toContain("Deliver cut is within 2 working days");
   });
 
   it("omits the deadline fact when nothing is due soon", () => {
     const task = makeTask({ name: "Far off", dueOn: "2026-12-20" });
     const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 9 * 60);
     expect(facts.atRisk).toEqual([]);
+  });
+
+  it("v5 Stage 12f.2: an overdue task says 'overdue by N days', not 'within 2 working days'", () => {
+    const task = makeTask({ name: "Old deliverable", dueOn: "2026-11-01" }); // today is 2026-11-16
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 9 * 60);
+    expect(facts.atRisk).toContain("Old deliverable is overdue by 15 days");
+  });
+
+  it("v5 Stage 12f.3: an at-risk subtask shows its parent film name", () => {
+    const task = makeTask({ name: "Edit", parentName: "Arran Trip Video", dueOn: "2026-11-18" });
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 9 * 60);
+    expect(facts.atRisk).toContain("Arran Trip Video — Edit is within 2 working days");
+  });
+
+  it("v5 Stage 12f.3: the same task due soon in both thisWeekTasks and everythingElseGroups is merged, not duplicated", () => {
+    const task = makeTask({ name: "Edit", dueOn: "2026-11-18" });
+    const facts = buildWeekSummaryFacts(
+      makeData({
+        thisWeekTasks: [task],
+        everythingElseGroups: [
+          { rootRef: "root", rootName: "root", projectName: "P", isContainer: false, nothingLeftToPlan: false, seriesName: null, tasks: [task] },
+        ],
+      }),
+      MON_TO_FRI,
+      9 * 60
+    );
+    expect(facts.atRisk.filter((line) => line.startsWith("Edit"))).toHaveLength(1);
+  });
+
+  it("v5 Stage 12f.4: a non-working day says why instead of '0.0h of 0.0h'", () => {
+    const facts = buildWeekSummaryFacts(
+      makeData({
+        capacityDays: [
+          {
+            dateStr: "2026-11-16",
+            weekday: "mon",
+            isWorkingDay: false,
+            startLabel: "",
+            startIsActual: false,
+            windowStartMinutes: 0,
+            windowEndMinutes: 0,
+            capacityHours: 0,
+            plannedCapacityHours: 0,
+            freeBlocks: [],
+            events: [],
+          },
+        ],
+      }),
+      MON_TO_FRI,
+      9 * 60
+    );
+    expect(facts.today.zeroCapacityReason).toBe("Not a working day");
+  });
+
+  it("v5 Stage 12f.4: a working day blocked by an all-day leave event names it and says when capacity resumes", () => {
+    const facts = buildWeekSummaryFacts(
+      makeData({
+        capacityDays: [
+          {
+            dateStr: "2026-11-16",
+            weekday: "mon",
+            isWorkingDay: true,
+            startLabel: "09:00",
+            startIsActual: false,
+            windowStartMinutes: 9 * 60,
+            windowEndMinutes: 17 * 60,
+            capacityHours: 7,
+            plannedCapacityHours: 0,
+            freeBlocks: [],
+            events: [{ id: "e1", title: "Annual Leave", allDay: true, busy: true, startLabel: null, endLabel: null }],
+          },
+          {
+            dateStr: "2026-11-17",
+            weekday: "tue",
+            isWorkingDay: true,
+            startLabel: "09:00",
+            startIsActual: false,
+            windowStartMinutes: 9 * 60,
+            windowEndMinutes: 17 * 60,
+            capacityHours: 7,
+            plannedCapacityHours: 7,
+            freeBlocks: [],
+            events: [],
+          },
+        ],
+      }),
+      MON_TO_FRI,
+      9 * 60
+    );
+    expect(facts.today.zeroCapacityReason).toBe("Annual Leave until 17 Nov");
   });
 
   it("flags over capacity with the exact overage", () => {

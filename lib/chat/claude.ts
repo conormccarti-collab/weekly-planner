@@ -271,18 +271,6 @@ export async function classifyChatMessage(
   throw new Error(`Unexpected tool: ${toolUse.name}`);
 }
 
-const SUMMARY_SYSTEM_PROMPT = `You turn a structured facts object about someone's work week into a short, warm, plain-text summary.
-Rules:
-- Use only the facts given. Never add, change, or calculate any number, date, or time — copy them exactly as given.
-- Never invent a task name or fact not present in the object.
-- Structure, in this order:
-  1. Now/Next/Today strip: what's happening now (or that nothing is scheduled / outside working hours), what's next, today's planned-vs-capacity. 1-2 sentences.
-  2. "atRisk" list, only if non-empty — brief.
-  3. About six short lines for the week, from the "week" object: capacity and hours placed, hours free or over, the main thing at risk (if any), tasks that didn't fit and why (if any), tasks using a suggested estimate (if any), hygiene problems on this week's deliverables (if any). Omit any of these six that are empty — don't say "none" or pad.
-  4. Three short lines for next week, from "nextWeek": planned vs. capacity, the top three, and what can't fit (if any).
-  5. If "monday" is present, one line: this week's working hours and what was left out of next week.
-- Keep every line to one short sentence, one per line, separated by a single newline character. No preamble, no "Here's your summary", no headers, no blank lines, no markdown — just the lines.`;
-
 const SUGGEST_ESTIMATE_TOOL: Anthropic.Tool = {
   name: "suggest_estimate",
   description: "Suggest how many hours this task will likely take, given its name, stage and video type.",
@@ -330,24 +318,4 @@ export async function suggestEstimateHours(taskName: string, stage: string | nul
     console.error(`suggestEstimateHours: model call failed for "${taskName}": ${err instanceof Error ? err.message : err}`);
     return null;
   }
-}
-
-/**
- * v3 (plan-first) stage 4, brief section 7: "The model turns the object
- * into two or three plain sentences. It may not add, change or calculate
- * any number or date." A one-shot plain-text call (no tools) — the caller
- * falls back to `templateSummary` from the same facts if this throws.
- */
-export async function phraseWeekSummary(facts: unknown): Promise<string> {
-  const response = await getClient().messages.create({
-    model: env.anthropicModel(),
-    max_tokens: 600,
-    system: SUMMARY_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: JSON.stringify(facts) }],
-  });
-  const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
-  if (!textBlock || !textBlock.text.trim()) {
-    throw new Error("The model didn't return any text.");
-  }
-  return textBlock.text.trim();
 }

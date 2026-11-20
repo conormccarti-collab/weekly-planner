@@ -110,10 +110,14 @@ function lengthOf(block: FreeBlock): number {
  */
 const DEEP_RESERVE_THRESHOLD_MINUTES = 75;
 
+export type AvoidSlot = { day: string; startMinutes: number };
+
 export function proposeAutoPlacement(
   orderedCandidates: AutoPlaceCandidate[],
   freeBlocksByDay: Map<string, FreeBlock[]>,
-  dayOrder: string[]
+  dayOrder: string[],
+  /** v5 Stage 12e.1: "regeneration does not put it back in the same slot" a user just rejected it from. */
+  avoidSlotByKey?: Map<string, AvoidSlot>
 ): AutoPlacementResult {
   const blocks: (FreeBlock & { day: string })[] = dayOrder.flatMap((day) =>
     (freeBlocksByDay.get(day) ?? []).map((b) => ({ ...b, day }))
@@ -134,6 +138,19 @@ export function proposeAutoPlacement(
       fitting = fitting.filter((b) => lengthOf(b) >= 60);
       if (shallowRemaining > 0) {
         fitting = fitting.filter((b) => lengthOf(b) >= DEEP_RESERVE_THRESHOLD_MINUTES);
+      }
+    }
+
+    const avoidSlot = avoidSlotByKey?.get(`${candidate.source}:${candidate.reference}`);
+    if (avoidSlot) {
+      const withoutRejectedSlot = fitting.filter((b) => !(b.day === avoidSlot.day && b.startMinutes === avoidSlot.startMinutes));
+      if (withoutRejectedSlot.length > 0) {
+        fitting = withoutRejectedSlot;
+      } else if (fitting.length > 0) {
+        // The only fitting gap left is the exact one just rejected — honour
+        // the rejection instead of silently reproducing it.
+        unplaced.push({ source: candidate.source, reference: candidate.reference, reason: "Rejected from its only free slot this week" });
+        continue;
       }
     }
 

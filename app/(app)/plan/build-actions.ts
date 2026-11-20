@@ -60,7 +60,14 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
     return; // nothing that would change the outcome has changed since the last build — no write
   }
 
-  const result = buildWeekPlan(inputs.toRank, inputs.freeBlocksByDay, inputs.dayOrder, inputs.weekCapacityHours, inputs.completedByGid);
+  const result = buildWeekPlan(
+    inputs.toRank,
+    inputs.freeBlocksByDay,
+    inputs.dayOrder,
+    inputs.weekCapacityHours,
+    inputs.completedByGid,
+    inputs.avoidSlotByKey
+  );
 
   const rowsToInsert: Record<string, unknown>[] = [];
   for (const p of result.placements) {

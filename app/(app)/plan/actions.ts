@@ -390,12 +390,108 @@ export async function approveDraftBlock(blockId: string) {
   revalidatePath("/");
 }
 
-export async function removeBlock(weekStart: string, blockId: string, source: Source, reference: string, must: boolean) {
+export type RemovedBlockSlot = { day: string; startMinutes: number; endMinutes: number } | null;
+
+/**
+ * v5 Stage 12e.1: "Rejecting a block removes it at once, records the
+ * rejection, keeps the task in the Unplaced list with its reason, shows a
+ * confirmation with Undo, and regeneration does not put it back in the same
+ * slot." Returns the removed slot (if it had one) so the caller can offer
+ * Undo without a round trip, and so `proposeAutoPlacement` (via the new
+ * `plan_events` row) skips re-proposing the exact same slot next time.
+ */
+export async function removeBlock(
+  weekStart: string,
+  blockId: string,
+  source: Source,
+  reference: string,
+  must: boolean
+): Promise<{ removedSlot: RemovedBlockSlot }> {
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
+  const { data: row } = await supabase
+    .from("plan_items")
+    .select("day, start_time, end_time")
+    .eq("id", blockId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
   await supabase.from("plan_items").delete().eq("id", blockId).eq("user_id", user.id);
   await reinstateUnplacedIfOrphaned(supabase, user.id, weekStart, source, reference, must);
+
+  const removedSlot: RemovedBlockSlot =
+    row?.day && row.start_time && row.end_time
+      ? { day: row.day as string, startMinutes: parseHHMM(row.start_time as string), endMinutes: parseHHMM(row.end_time as string) }
+      : null;
+
+  if (removedSlot) {
+    // Best-effort — migration 0024 may not be applied yet; a failed insert
+    // here must not break the remove itself.
+    await supabase.from("plan_events").insert({
+      user_id: user.id,
+      event_type: "rejected",
+      source,
+      reference,
+      week_start: weekStart,
+      day: removedSlot.day,
+      start_time: row!.start_time,
+      end_time: row!.end_time,
+    });
+  }
+
+  revalidatePath("/");
+  return { removedSlot };
+}
+
+/** v5 Stage 12e.1: "shows a confirmation with Undo" — puts the block back exactly where it was and forgets the rejection. */
+export async function undoReject(
+  weekStart: string,
+  source: Source,
+  reference: string,
+  day: string,
+  startMinutes: number,
+  endMinutes: number,
+  must: boolean
+) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  // Remove whatever unplaced row the rejection left behind, then restore
+  // the exact placement — pinned, since this is now an explicit user action.
+  await supabase
+    .from("plan_items")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("week_start", weekStart)
+    .eq("source", source)
+    .eq("reference", reference)
+    .is("day", null);
+
+  await supabase.from("plan_items").insert({
+    user_id: user.id,
+    week_start: weekStart,
+    source,
+    reference,
+    day,
+    start_time: formatHHMM(startMinutes),
+    end_time: formatHHMM(endMinutes),
+    hours: (endMinutes - startMinutes) / 60,
+    must,
+    status: "planned",
+    pinned: true,
+  });
+
+  await supabase
+    .from("plan_events")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("week_start", weekStart)
+    .eq("source", source)
+    .eq("reference", reference)
+    .eq("event_type", "rejected")
+    .eq("day", day)
+    .eq("start_time", formatHHMM(startMinutes));
 
   revalidatePath("/");
 }

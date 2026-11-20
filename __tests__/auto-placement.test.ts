@@ -195,4 +195,56 @@ describe("proposeAutoPlacement", () => {
     expect(result.placements).toEqual([]);
     expect(result.unplaced).toEqual([{ source: "asana", reference: "big", reason: "No suitable free block this week" }]);
   });
+
+  describe("avoidSlotByKey (v5 Stage 12e.1 — regeneration never re-proposes a rejected slot)", () => {
+    it("picks a different free block instead of the one just rejected", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "a", estimateHours: 1 })],
+        freeBlocks({
+          "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }],
+          "2026-11-17": [{ startMinutes: 540, endMinutes: 600 }],
+        }),
+        dayOrder,
+        new Map([["asana:a", { day: "2026-11-16", startMinutes: 540 }]])
+      );
+      expect(result.placements).toEqual([
+        { source: "asana", reference: "a", day: "2026-11-17", startMinutes: 540, endMinutes: 600 },
+      ]);
+    });
+
+    it("leaves it unplaced, rather than re-using it, when the rejected slot is the only one that fits", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "a", estimateHours: 1 })],
+        freeBlocks({ "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }] }),
+        dayOrder,
+        new Map([["asana:a", { day: "2026-11-16", startMinutes: 540 }]])
+      );
+      expect(result.placements).toEqual([]);
+      expect(result.unplaced).toEqual([{ source: "asana", reference: "a", reason: "Rejected from its only free slot this week" }]);
+    });
+
+    it("doesn't affect a different task's placement in that same slot", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "b", estimateHours: 1 })],
+        freeBlocks({ "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }] }),
+        dayOrder,
+        new Map([["asana:a", { day: "2026-11-16", startMinutes: 540 }]])
+      );
+      expect(result.placements).toEqual([
+        { source: "asana", reference: "b", day: "2026-11-16", startMinutes: 540, endMinutes: 600 },
+      ]);
+    });
+
+    it("has no effect when the rejected slot doesn't match where the task would land anyway", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "a", estimateHours: 1 })],
+        freeBlocks({ "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }] }),
+        dayOrder,
+        new Map([["asana:a", { day: "2026-11-17", startMinutes: 540 }]])
+      );
+      expect(result.placements).toEqual([
+        { source: "asana", reference: "a", day: "2026-11-16", startMinutes: 540, endMinutes: 600 },
+      ]);
+    });
+  });
 });

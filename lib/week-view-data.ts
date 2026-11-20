@@ -43,6 +43,8 @@ export type WeekViewData = {
   breakdown: StageBreakdownRow[];
   saveRefs: { source: "asana" | "personal"; reference: string; must: boolean }[];
   shoots: ShootMarker[];
+  /** v5 Stage 12e.1: tasks rejected from a slot this week — shown in Unplaced so a reject isn't silently indistinguishable from "no room". */
+  rejectedKeys: Set<string>;
   /** Composite source:reference keys genuinely committed to this week — see the note where it's built. */
   thisWeekOnlyKeys: Set<string>;
   /** v3 (plan-first) stage 4: for the summary panel's deadline-within-N-working-days check. */
@@ -124,6 +126,16 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   const priorityOverrideByRef = new Map(
     taskMetaRows.filter((r) => r.priority_override != null).map((r) => [r.reference, r.priority_override as string])
   );
+
+  // v5 Stage 12e.1: "keeps the task in the Unplaced list with its reason."
+  // Best-effort — migration 0024 may not be applied yet.
+  const { data: rejectionRows } = await supabase
+    .from("plan_events")
+    .select("source, reference")
+    .eq("user_id", user.id)
+    .eq("week_start", weekStart)
+    .eq("event_type", "rejected");
+  const rejectedKeys = new Set((rejectionRows ?? []).map((r) => `${r.source}:${r.reference}`));
 
   // v2 (18 Nov 2026), item B.9: show shoots on the calendar by date, reading
   // Shoot Type / Location if present — nothing fails if they're absent.
@@ -441,8 +453,13 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   // items" and "anything that cannot fit" for next week's draft — both
   // free from data already gathered above (followingPlan.placed/unplaced,
   // the task/stage maps), no new queries.
+  // v5 Stage 12f.3: "Every subtask shows its parent" — applies to the
+  // summary's next-week lists too, not just the calendar blocks.
   function nameFor(source: "asana" | "personal", reference: string): string {
-    return source === "asana" ? taskByRef.get(reference)?.name ?? reference : personalByRef.get(reference)?.name ?? reference;
+    if (source === "personal") return personalByRef.get(reference)?.name ?? reference;
+    const task = taskByRef.get(reference);
+    if (!task) return reference;
+    return task.parent_name ? `${task.parent_name} — ${task.name}` : task.name;
   }
   const followingWeekUnplaced = followingPlan.unplaced.map((u) => ({ source: u.source, reference: u.reference, name: nameFor(u.source, u.reference) }));
   const followingWeekPlannedHours = followingPlan.placed.reduce((sum, p) => sum + p.hours, 0);
@@ -518,6 +535,7 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     breakdown,
     saveRefs: thisWeekTasks.map((t) => ({ source: t.source, reference: t.reference, must: t.must })),
     shoots,
+    rejectedKeys,
     thisWeekOnlyKeys,
     workingDays: settings.working_days,
     weekHygieneIssues,

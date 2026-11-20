@@ -1,6 +1,44 @@
 import type { WeekViewData } from "@/lib/week-view-data";
 import type { Weekday } from "@/lib/time";
-import { addWorkingDays, formatHHMM } from "@/lib/time";
+import { addWorkingDays, daysBetweenDateStrs, formatHHMM } from "@/lib/time";
+
+/** v5 Stage 12f.2: "Overdue wording is 'overdue by N days'. 'Within 2 working days' applies only to future dates." */
+export function dueWording(dueOn: string, todayStr: string): string {
+  const diff = daysBetweenDateStrs(dueOn, todayStr); // positive => dueOn is in the past
+  if (diff > 0) return `overdue by ${diff} day${diff === 1 ? "" : "s"}`;
+  if (diff === 0) return "due today";
+  return "within 2 working days"; // the caller only ever includes a future date already gated to this window
+}
+
+/** v5 Stage 12f.3: "Every subtask shows its parent" — the summary's own task-name formatting. */
+export function displayName(name: string, parentName: string | null): string {
+  return parentName ? `${parentName} — ${name}` : name;
+}
+
+/** v5 Stage 12f.1: short dates ("24 Jul") instead of a full ISO string. */
+export function shortDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const month = date.toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" });
+  return `${d} ${month}`;
+}
+
+type DayForZeroCapacity = { dateStr: string; isWorkingDay: boolean; plannedCapacityHours: number; events: { title: string; allDay: boolean }[] };
+
+/**
+ * v5 Stage 12f.4: "Zero-capacity weeks say why... never print '0.0h of
+ * 0.0h'." Looks across every day already loaded for when capacity resumes —
+ * never guesses past that window. `anchorDay` is the specific zero-capacity
+ * day being explained (today, or the week's first working day).
+ */
+function zeroCapacityReasonFor(anchorDay: DayForZeroCapacity | undefined, allDays: DayForZeroCapacity[]): string | null {
+  if (!anchorDay || anchorDay.plannedCapacityHours > 0) return null;
+  if (!anchorDay.isWorkingDay) return "Not a working day";
+  const allDayEvent = anchorDay.events.find((e) => e.allDay);
+  const resumesDay = allDays.find((d) => d.dateStr > anchorDay.dateStr && d.plannedCapacityHours > 0);
+  const until = resumesDay ? ` until ${shortDate(resumesDay.dateStr)}` : "";
+  return allDayEvent ? `${allDayEvent.title}${until}` : `You're out${until || " for the rest of this week"}`;
+}
 
 export type SummaryBlock = { name: string; startMinutes: number; endMinutes: number };
 
@@ -17,7 +55,13 @@ export type EndedNotDoneBlock = {
 export type WeekSummaryFacts = {
   now: SummaryBlock | null;
   next: SummaryBlock[];
-  today: { plannedHours: number; capacityHours: number; doneHours: number };
+  today: {
+    plannedHours: number;
+    capacityHours: number;
+    doneHours: number;
+    /** v5 Stage 12f.4: "Zero-capacity weeks say why... never print '0.0h of 0.0h'." Null when there's genuinely nothing to explain (capacity > 0). */
+    zeroCapacityReason: string | null;
+  };
   /** Fully-computed fact lines (deadlines, over-capacity, needs-estimate) — a model may only phrase these, never invent numbers. Omit the section entirely if empty. */
   atRisk: string[];
   /** Rendered as fixed-format one-tap prompts, not through the model (brief 7, "How it works" bullet 3). */
@@ -39,6 +83,8 @@ export type WeekSummaryFacts = {
     notFit: { name: string; reason: string }[];
     suggestedEstimateTasks: string[];
     hygieneIssues: string[];
+    /** v5 Stage 12f.4: same as today's, for a week with zero capacity throughout (e.g. a full week of leave). */
+    zeroCapacityReason: string | null;
   };
   /** v4 Stage 2, brief 5.6: "three lines for next week" — planned-vs-capacity, top three, cannot-fit. */
   nextWeek: { plannedHours: number; capacityHours: number; topThree: string[]; cannotFit: string[] };
@@ -82,9 +128,15 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
   const now = current ? toBlock(current) : null;
   const next = upcoming.slice(0, 2).map(toBlock);
 
-  const todayCapacity = data.capacityDays.find((d) => d.dateStr === todayStr)?.plannedCapacityHours ?? 0;
+  const todayDay = data.capacityDays.find((d) => d.dateStr === todayStr);
+  const todayCapacity = todayDay?.plannedCapacityHours ?? 0;
   const todayPlannedHours = todayEntries.reduce((sum, e) => sum + e.plannedHours, 0);
   const todayDoneHours = todayEntries.reduce((sum, e) => sum + (e.status === "done" && e.actualHours != null ? e.actualHours : 0), 0);
+
+  const allDays = [...data.capacityDays, ...data.followingCapacityDays];
+  const zeroCapacityReason = zeroCapacityReasonFor(todayDay, allDays);
+  const weekZeroCapacityReason =
+    data.weekCapacityHours === 0 ? zeroCapacityReasonFor(data.capacityDays.find((d) => d.isWorkingDay) ?? data.capacityDays[0], allDays) : null;
 
   const endedNotDone: EndedNotDoneBlock[] = todayEntries
     .filter((e) => e.endMinutes <= nowMinutes && e.status !== "done" && e.status !== "behind")
@@ -92,12 +144,17 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
 
   const atRisk: string[] = [];
 
+  // v5 Stage 12f.3: "Every subtask shows its parent... Duplicates merged" —
+  // a task can appear via both thisWeekTasks and everythingElseGroups
+  // (e.g. due this week but genuinely unplaced), so dedupe by key first.
   const deadlineCutoff = addWorkingDays(todayStr, 2, workingDays);
-  const atRiskDeadlines = [...data.thisWeekTasks, ...data.everythingElseGroups.flatMap((g) => g.tasks)].filter(
-    (t) => t.dueOn != null && t.dueOn <= deadlineCutoff
-  );
-  for (const t of atRiskDeadlines) {
-    atRisk.push(`${t.name} is due ${t.dueOn} (within 2 working days)`);
+  const atRiskByKey = new Map<string, { name: string; parentName: string | null; dueOn: string }>();
+  for (const t of [...data.thisWeekTasks, ...data.everythingElseGroups.flatMap((g) => g.tasks)]) {
+    if (t.dueOn == null || t.dueOn > deadlineCutoff) continue;
+    atRiskByKey.set(`${t.source}:${t.reference}`, { name: t.name, parentName: t.parentName, dueOn: t.dueOn });
+  }
+  for (const t of atRiskByKey.values()) {
+    atRisk.push(`${displayName(t.name, t.parentName)} is ${dueWording(t.dueOn, todayStr)}`);
   }
 
   if (data.weekPlannedHours > data.weekCapacityHours) {
@@ -116,15 +173,15 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
 
   const notFit = data.thisWeekTasks
     .filter((t) => t.placements.length === 0)
-    .map((t) => ({ name: t.name, reason: t.estimateHours == null ? "needs an estimate" : "no room left this week" }));
+    .map((t) => ({ name: displayName(t.name, t.parentName), reason: t.estimateHours == null ? "needs an estimate" : "no room left this week" }));
   const suggestedEstimateTasks = data.thisWeekTasks
     .filter((t) => t.placements.some((p) => p.status === "suggested"))
-    .map((t) => t.name);
+    .map((t) => displayName(t.name, t.parentName));
 
   return {
     now,
     next,
-    today: { plannedHours: todayPlannedHours, capacityHours: todayCapacity, doneHours: todayDoneHours },
+    today: { plannedHours: todayPlannedHours, capacityHours: todayCapacity, doneHours: todayDoneHours, zeroCapacityReason },
     atRisk,
     endedNotDone,
     week: {
@@ -135,6 +192,7 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
       notFit,
       suggestedEstimateTasks,
       hygieneIssues: data.weekHygieneIssues,
+      zeroCapacityReason: weekZeroCapacityReason,
     },
     nextWeek: {
       plannedHours: data.followingWeekPlannedHours,
@@ -168,9 +226,13 @@ export function templateSummary(facts: WeekSummaryFacts): string {
     parts.push(`Next: ${facts.next.map((b) => `${b.name} (${formatHHMM(b.startMinutes)}–${formatHHMM(b.endMinutes)})`).join(", ")}.`);
   }
 
-  parts.push(
-    `Today: ${facts.today.plannedHours.toFixed(1)}h planned of ${facts.today.capacityHours.toFixed(1)}h, ${facts.today.doneHours.toFixed(1)}h done.`
-  );
+  if (facts.today.zeroCapacityReason) {
+    parts.push(`Today: ${facts.today.zeroCapacityReason}.`);
+  } else {
+    parts.push(
+      `Today: ${facts.today.plannedHours.toFixed(1)}h planned of ${facts.today.capacityHours.toFixed(1)}h, ${facts.today.doneHours.toFixed(1)}h done.`
+    );
+  }
 
   if (facts.atRisk.length > 0) {
     parts.push(`At risk: ${facts.atRisk.join("; ")}.`);
@@ -178,9 +240,13 @@ export function templateSummary(facts: WeekSummaryFacts): string {
 
   // v4 Stage 2, brief 5.6: the fuller ~6-line week summary, kept separate
   // from the Now/Next/Today/At-risk strip above.
-  const freeOrOver =
-    facts.week.freeOrOverHours >= 0 ? `${facts.week.freeOrOverHours.toFixed(1)}h free` : `${Math.abs(facts.week.freeOrOverHours).toFixed(1)}h over`;
-  parts.push(`This week: ${facts.week.plannedHours.toFixed(1)}h placed of ${facts.week.capacityHours.toFixed(1)}h capacity, ${freeOrOver}.`);
+  if (facts.week.zeroCapacityReason) {
+    parts.push(`This week: ${facts.week.zeroCapacityReason}.`);
+  } else {
+    const freeOrOver =
+      facts.week.freeOrOverHours >= 0 ? `${facts.week.freeOrOverHours.toFixed(1)}h free` : `${Math.abs(facts.week.freeOrOverHours).toFixed(1)}h over`;
+    parts.push(`This week: ${facts.week.plannedHours.toFixed(1)}h placed of ${facts.week.capacityHours.toFixed(1)}h capacity, ${freeOrOver}.`);
+  }
   if (facts.week.mainAtRisk) {
     parts.push(`Main thing at risk: ${facts.week.mainAtRisk}.`);
   }
