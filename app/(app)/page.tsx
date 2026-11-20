@@ -5,7 +5,6 @@ import { MorningCheckPanel } from "@/components/morning-check-panel";
 import { PlanBoard } from "@/components/plan-board";
 import { EverythingElseList } from "@/components/everything-else-list";
 import { loadWeekViewData } from "@/lib/week-view-data";
-import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { computeWeekChanges } from "@/app/(app)/plan/changes-actions";
 import { computeMorningCheck } from "@/app/(app)/morning-check/actions";
 import { WeekChangesBanner } from "@/components/week-changes-banner";
@@ -13,7 +12,7 @@ import { WeekSummary } from "@/components/week-summary";
 import { WeekChatPanel } from "@/components/week-chat-panel";
 import { StartsThisWeekList } from "@/components/starts-this-week";
 import { loadChatHistory } from "@/app/(app)/chat/actions";
-import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
+import { utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 
 export default async function WeekPage() {
@@ -25,15 +24,10 @@ export default async function WeekPage() {
     return <h1 className="text-lg font-semibold">Week</h1>;
   }
 
-  // v3 (plan-first), brief 3.1/4.1: the week is already laid out as a
-  // proposed plan when the app opens — no button needed. A `saved` week is
-  // left untouched by this (refreshDraftWeek no-ops for it).
+  // v5 Stage 12c: "the page load must be read-only." The week is kept built
+  // ahead of time by other triggers instead — a sync completing, a user
+  // action (chat, Regenerate), and the daily cron — never by viewing it.
   const nowLocal = utcInstantToLocal(new Date(), env.appTimezone());
-  const todayStr = nowLocal.dateStr;
-  const weekStart = mondayOf(todayStr);
-  const followingWeekStart = addDaysToDateStr(weekStart, 7);
-  await refreshDraftWeek(weekStart);
-  await refreshDraftWeek(followingWeekStart);
 
   const data = await loadWeekViewData(supabase, user);
   // v3 (plan-first), brief 3.4: once accepted, changes surface as a banner

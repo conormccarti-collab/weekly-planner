@@ -15,32 +15,51 @@ async function requireUser(supabase: SupabaseClient): Promise<User> {
 
 /**
  * v3 (plan-first), brief sections 3.1/4.1: builds or refreshes a draft
- * week's plan automatically — "no button is needed." Pinned, Done/Behind,
- * and past-dated rows are protected (brief 3.5); everything else is
- * recomputed from scratch, so this is safe to call on every page load while
- * the week is still draft. A `saved` (accepted) week is left untouched here
- * — that's the "Things have changed" banner's job instead (stage 2).
+ * week's plan. Pinned, Done/Behind, and past-dated rows are protected (brief
+ * 3.5); everything else is recomputed from scratch. A `saved` (accepted)
+ * week is left untouched here — that's the "Things have changed" banner's
+ * job instead (stage 2).
+ *
+ * v5 Stage 12c: this is deliberately **not** called from the Week page's
+ * render path any more — "the page load must be read-only." It's called
+ * instead from the four events the brief names: a sync completing (the two
+ * `/api/sync/*` routes), a user action (chat, the Regenerate button —
+ * unchanged), the daily cron (`/api/cron/daily-build`), and implicitly on
+ * week rollover (the same daily cron, for whichever week is current that
+ * day). The input-hash check below means none of those call sites need to
+ * be clever about "did anything actually change" themselves — calling this
+ * with unchanged inputs is always a safe, writeless no-op.
  */
-export async function refreshDraftWeek(weekStart: string): Promise<void> {
-  const supabase = await createClient();
-  const user = await requireUser(supabase);
-
-  const { data: weekRow, error: weekRowError } = await supabase
-    .from("weeks")
-    .select("status")
-    .eq("user_id", user.id)
-    .eq("week_start", weekStart)
-    .maybeSingle();
-  if (weekRowError) throw new Error(`Failed to load week status: ${weekRowError.message}`);
+export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: string, weekStart: string): Promise<void> {
+  let weekRow: { status: string; input_hash: string | null } | null;
+  {
+    const { data, error } = await supabase.from("weeks").select("status, input_hash").eq("user_id", userId).eq("week_start", weekStart).maybeSingle();
+    if (error) {
+      // Migration 0022 (weeks.input_hash) may not be applied yet — fall back
+      // to the pre-Stage-12c behaviour (always rebuild, see the hash check
+      // below) rather than failing whatever called this.
+      const fallback = await supabase.from("weeks").select("status").eq("user_id", userId).eq("week_start", weekStart).maybeSingle();
+      if (fallback.error) throw new Error(`Failed to load week status: ${fallback.error.message}`);
+      weekRow = fallback.data ? { status: fallback.data.status, input_hash: null } : null;
+    } else {
+      weekRow = data;
+    }
+  }
+  const isNewWeek = !weekRow;
   if (!weekRow) {
-    const { error } = await supabase.from("weeks").insert({ user_id: user.id, week_start: weekStart, status: "draft" });
+    const { error } = await supabase.from("weeks").insert({ user_id: userId, week_start: weekStart, status: "draft" });
     // A concurrent call may have created this same week row first — that's fine, carry on as draft either way.
     if (error && error.code !== "23505") throw new Error(`Failed to create draft week: ${error.message}`);
   } else if (weekRow.status === "saved") {
     return;
   }
 
-  const inputs = await gatherWeekBuildInputs(supabase, user, weekStart);
+  const inputs = await gatherWeekBuildInputs(supabase, userId, weekStart);
+
+  if (!isNewWeek && weekRow?.input_hash === inputs.inputHash) {
+    return; // nothing that would change the outcome has changed since the last build — no write
+  }
+
   const result = buildWeekPlan(inputs.toRank, inputs.freeBlocksByDay, inputs.dayOrder, inputs.weekCapacityHours, inputs.completedByGid);
 
   const rowsToInsert: Record<string, unknown>[] = [];
@@ -81,7 +100,7 @@ export async function refreshDraftWeek(weekStart: string): Promise<void> {
   // moment it runs, inside an advisory lock, so overlapping invocations
   // can't each independently insert their own full duplicate set.
   const { error: rpcError } = await supabase.rpc("refresh_draft_week_items", {
-    p_user_id: user.id,
+    p_user_id: userId,
     p_week_start: weekStart,
     p_today: todayStr,
     p_insert_rows: rowsToInsert,
@@ -98,4 +117,15 @@ export async function refreshDraftWeek(weekStart: string): Promise<void> {
     console.error(`refreshDraftWeek: failed to write the rebuilt plan for ${weekStart}: ${rpcError.message}`);
     return;
   }
+
+  // Best-effort — if migration 0022 isn't applied yet this column write
+  // fails silently and every call just rebuilds unconditionally until it is.
+  await supabase.from("weeks").update({ input_hash: inputs.inputHash }).eq("user_id", userId).eq("week_start", weekStart);
+}
+
+/** Session-based wrapper for call sites that already have a signed-in request (chat, the Regenerate button). */
+export async function refreshDraftWeek(weekStart: string): Promise<void> {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+  return refreshDraftWeekFor(supabase, user.id, weekStart);
 }

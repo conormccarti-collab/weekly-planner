@@ -45,7 +45,7 @@ export async function computeWeekChanges(weekStart: string): Promise<WeekChanges
   const { data: weekRow } = await supabase.from("weeks").select("status").eq("user_id", user.id).eq("week_start", weekStart).maybeSingle();
   if (weekRow?.status !== "saved") return null; // only accepted weeks use this path — drafts refresh silently
 
-  const inputs = await gatherWeekBuildInputs(supabase, user, weekStart, { treatAllExistingAsProtected: true });
+  const inputs = await gatherWeekBuildInputs(supabase, user.id, weekStart, { treatAllExistingAsProtected: true });
 
   // Every accepted row is protected by `treatAllExistingAsProtected`, so
   // `toRank` here is already exactly "eligible candidates with no row yet."

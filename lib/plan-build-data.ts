@@ -1,4 +1,5 @@
-import type { SupabaseClient, User } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { stableHash } from "@/lib/input-hash";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
 import { computeStageInfo, videoTypeOf, type StageInfo } from "@/lib/asana/stage-context";
 import { computeDeliverableLatestStarts, flatCapacityForDate } from "@/lib/back-scheduling-data";
@@ -41,6 +42,7 @@ export type WeekBuildInputs = {
   weekCapacityHours: number;
   completedByGid: Map<string, boolean>;
   toRank: BuildCandidate[];
+  inputHash: string;
 };
 
 /**
@@ -55,14 +57,14 @@ export type WeekBuildInputs = {
  */
 export async function gatherWeekBuildInputs(
   supabase: SupabaseClient,
-  user: User,
+  userId: string,
   weekStart: string,
   options?: { treatAllExistingAsProtected?: boolean }
 ): Promise<WeekBuildInputs> {
   const timezone = env.appTimezone();
   const todayStr = utcInstantToLocal(new Date(), timezone).dateStr;
   const weekEndExclusive = addDaysToDateStr(weekStart, 7);
-  const settings = await loadSettings(supabase, user.id);
+  const settings = await loadSettings(supabase, userId);
 
   const [tasksResult, personalResult, metaResult, existingResult, weekCapacity] = await Promise.all([
     supabase
@@ -72,14 +74,14 @@ export async function gatherWeekBuildInputs(
       )
       .eq("completed", false)
       .eq("no_longer_assigned", false),
-    supabase.from("personal_tasks").select("id, name, estimate_hours, priority, due_on").eq("user_id", user.id).eq("completed", false),
-    supabase.from("task_meta").select("source, reference, parked, priority_override, remaining_hours").eq("user_id", user.id),
+    supabase.from("personal_tasks").select("id, name, estimate_hours, priority, due_on").eq("user_id", userId).eq("completed", false),
+    supabase.from("task_meta").select("source, reference, parked, priority_override, remaining_hours").eq("user_id", userId),
     supabase
       .from("plan_items")
       .select("id, source, reference, day, must, status, pinned, start_time, end_time, hours")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("week_start", weekStart),
-    getWeekCapacity(supabase, user.id, timezone, settings, weekStart, { useActualStarts: weekStart === mondayOf(todayStr) }),
+    getWeekCapacity(supabase, userId, timezone, settings, weekStart, { useActualStarts: weekStart === mondayOf(todayStr) }),
   ]);
 
   // A failed read here must never be silently treated as "nothing exists
@@ -105,6 +107,19 @@ export async function gatherWeekBuildInputs(
     metaRows.filter((r) => r.remaining_hours != null).map((r) => [`${r.source}:${r.reference}`, Number(r.remaining_hours)])
   );
   const existingRows = (existingResult.data ?? []) as ExistingDbRow[];
+
+  // v5 Stage 12c: a fingerprint of every raw input the build depends on, so
+  // `refreshDraftWeek` can tell "nothing changed since last time" and skip
+  // the rebuild (and its write) entirely, rather than recomputing and
+  // rewriting identical rows on every call.
+  const inputHash = stableHash({
+    tasks: [...allTasks].sort((a, b) => a.gid.localeCompare(b.gid)),
+    personal: [...personalTasks].sort((a, b) => a.id.localeCompare(b.id)),
+    meta: [...metaRows].sort((a, b) => `${a.source}:${a.reference}`.localeCompare(`${b.source}:${b.reference}`)),
+    existing: [...existingRows].sort((a, b) => a.id.localeCompare(b.id)),
+    weekCapacity,
+    settings,
+  });
 
   const visibleGroups = groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root));
   const stageInfoByGroup = visibleGroups.map((g) => computeStageInfo(g));
@@ -148,7 +163,7 @@ export async function gatherWeekBuildInputs(
     if (focusType === "away" || focusType === "waiting") continue;
     targets.push({ source: "asana", reference: gid, stage: (stageInfoByRef.get(gid)?.stage as EstimateTarget["stage"]) ?? null, videoType: videoTypeOf(task) });
   }
-  const estimatesByKey = await resolveEstimatesForTasks(supabase, user.id, targets);
+  const estimatesByKey = await resolveEstimatesForTasks(supabase, userId, targets);
   const targetByKey = new Map(targets.map((t) => [`${t.source}:${t.reference}`, t]));
 
   // v4 Stage 4b: back-scheduling needs every stage's estimate for any
@@ -167,7 +182,7 @@ export async function gatherWeekBuildInputs(
     }
   }
   const backSchedulingEstimatesByKey =
-    backSchedulingTargets.length > 0 ? await resolveEstimatesForTasks(supabase, user.id, backSchedulingTargets) : new Map();
+    backSchedulingTargets.length > 0 ? await resolveEstimatesForTasks(supabase, userId, backSchedulingTargets) : new Map();
   const allEstimatesForBackScheduling = new Map([...estimatesByKey, ...backSchedulingEstimatesByKey]);
 
   const capacityForDate = flatCapacityForDate(settings.working_days, settings.hours_per_day);
@@ -201,7 +216,7 @@ export async function gatherWeekBuildInputs(
     const hours = await suggestEstimateHours(name, target?.stage ?? null, target?.videoType ?? null);
     if (hours == null) return estimate;
     await supabase.from("task_meta").upsert({
-      user_id: user.id,
+      user_id: userId,
       source,
       reference,
       stage: target?.stage ?? null,
@@ -323,5 +338,5 @@ export async function gatherWeekBuildInputs(
     completedByGid = new Map((blockerRows ?? []).map((r) => [r.gid as string, r.completed as boolean]));
   }
 
-  return { candidates, needsEstimatePick, nameByKey, mustByKey, existingRows, protectedKeys, freeBlocksByDay, dayOrder, weekCapacityHours, completedByGid, toRank };
+  return { candidates, needsEstimatePick, nameByKey, mustByKey, existingRows, protectedKeys, freeBlocksByDay, dayOrder, weekCapacityHours, completedByGid, toRank, inputHash };
 }
