@@ -7,6 +7,7 @@ describe("resolveMorningCheckUpdate", () => {
       status: "done",
       actualHours: 3.5,
       remainingHours: null,
+      clearPlacement: false,
     });
   });
 
@@ -15,6 +16,7 @@ describe("resolveMorningCheckUpdate", () => {
       status: "planned",
       actualHours: null,
       remainingHours: null,
+      clearPlacement: false,
     });
   });
 
@@ -23,6 +25,7 @@ describe("resolveMorningCheckUpdate", () => {
       status: "behind",
       actualHours: 1.5,
       remainingHours: 2,
+      clearPlacement: false,
     });
   });
 
@@ -31,6 +34,7 @@ describe("resolveMorningCheckUpdate", () => {
       status: "behind",
       actualHours: 0,
       remainingHours: 5,
+      clearPlacement: false,
     });
   });
 
@@ -39,6 +43,16 @@ describe("resolveMorningCheckUpdate", () => {
       status: "behind",
       actualHours: 0,
       remainingHours: 3.5,
+      clearPlacement: false,
+    });
+  });
+
+  it("Moved clears the placement instead of recording an outcome — brief 5.7, its own answer, not folded into On track", () => {
+    expect(resolveMorningCheckUpdate("moved", 3.5, null)).toEqual({
+      status: "moved",
+      actualHours: null,
+      remainingHours: null,
+      clearPlacement: true,
     });
   });
 });

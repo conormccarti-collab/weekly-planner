@@ -75,7 +75,8 @@ function makeData(overrides: Partial<WeekViewData> = {}): WeekViewData {
     weekStatus: "saved",
     weekCapacityHours: 35,
     weekPlannedHours: 0,
-    weekProvisionalHours: 0,
+    weekSuggestedHours: 0,
+    weekHygieneIssues: [],
     breakdown: [],
     saveRefs: [],
     shoots: [],
@@ -157,11 +158,39 @@ describe("buildWeekSummaryFacts", () => {
     expect(facts.atRisk).toContain("This week is 5.0h over capacity");
   });
 
-  it("counts tasks that still need an estimate", () => {
-    const provisional = makeTask({ placements: [makePlacement({ status: "provisional" })] });
+  it("counts tasks that still need an estimate — a placed suggested task doesn't count, only an unplaced one with no figure at all", () => {
+    const suggested = makeTask({ placements: [makePlacement({ status: "suggested" })] });
     const noEstimate = makeTask({ reference: "gid2", placements: [], estimateHours: null });
-    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [provisional, noEstimate] }), MON_TO_FRI, 9 * 60);
-    expect(facts.atRisk).toContain("2 tasks still need an estimate");
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [suggested, noEstimate] }), MON_TO_FRI, 9 * 60);
+    expect(facts.atRisk).toContain("1 task still needs an estimate");
+  });
+
+  it("lists suggested-estimate tasks separately from the needs-estimate count", () => {
+    const suggested = makeTask({ name: "Suggested task", placements: [makePlacement({ status: "suggested" })] });
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [suggested] }), MON_TO_FRI, 9 * 60);
+    expect(facts.week.suggestedEstimateTasks).toEqual(["Suggested task"]);
+  });
+
+  it("lists this-week tasks that didn't fit, with a reason", () => {
+    const needsEstimate = makeTask({ name: "No figure", reference: "gid2", placements: [], estimateHours: null });
+    const noRoom = makeTask({ name: "No room", reference: "gid3", placements: [], estimateHours: 3 });
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [needsEstimate, noRoom] }), MON_TO_FRI, 9 * 60);
+    expect(facts.week.notFit).toEqual([
+      { name: "No figure", reason: "needs an estimate" },
+      { name: "No room", reason: "no room left this week" },
+    ]);
+  });
+
+  it("passes through this week's capacity/planned/free-or-over and hygiene issues", () => {
+    const facts = buildWeekSummaryFacts(
+      makeData({ weekCapacityHours: 35, weekPlannedHours: 20, weekHygieneIssues: ["Arran edit: Brand is blank"] }),
+      MON_TO_FRI,
+      9 * 60
+    );
+    expect(facts.week.capacityHours).toBe(35);
+    expect(facts.week.plannedHours).toBe(20);
+    expect(facts.week.freeOrOverHours).toBe(15);
+    expect(facts.week.hygieneIssues).toEqual(["Arran edit: Brand is blank"]);
   });
 
   it("surfaces next week's planned/capacity, top three, and cannot-fit list unchanged", () => {

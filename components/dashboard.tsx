@@ -7,16 +7,15 @@ function formatHours(h: number): string {
 export function Dashboard({
   weekCapacityHours,
   weekPlannedHours,
-  weekProvisionalHours,
+  weekSuggestedHours,
   breakdown,
 }: {
   weekCapacityHours: number;
   weekPlannedHours: number;
-  weekProvisionalHours: number;
+  weekSuggestedHours: number;
   breakdown: StageBreakdownRow[];
 }) {
   const overCapacity = weekPlannedHours > weekCapacityHours;
-  const confirmedHours = weekPlannedHours - weekProvisionalHours;
   const maxHours = Math.max(weekCapacityHours, ...breakdown.map((r) => Math.max(r.plannedHours, r.actualHours)), 1);
 
   return (
@@ -28,10 +27,8 @@ export function Dashboard({
         </div>
         <span className={`text-sm font-medium ${overCapacity ? "text-danger" : "text-chalk-dim"}`}>
           {formatHours(weekPlannedHours)} planned{overCapacity ? " — over capacity" : ""}
-          {weekProvisionalHours > 0 && (
-            <span className="ml-1 font-normal text-chalk-dim">
-              ({formatHours(confirmedHours)} confirmed + {formatHours(weekProvisionalHours)} provisional)
-            </span>
+          {weekSuggestedHours > 0 && (
+            <span className="ml-1 font-normal text-chalk-dim">(plus {formatHours(weekSuggestedHours)} suggested)</span>
           )}
         </span>
       </div>

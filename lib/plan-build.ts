@@ -11,7 +11,7 @@ import { isBlocked } from "@/lib/asana/dependencies";
  */
 export type BuildCandidate = AutoPlaceCandidate & {
   blockedByGids: string[];
-  isProvisional: boolean;
+  isSuggested: boolean;
 };
 
 export type ExistingRow = {
@@ -38,7 +38,7 @@ export function partitionProtected(rows: ExistingRow[], todayStr: string): { pro
 }
 
 export type BuildResult = {
-  placements: (ProposedPlacement & { isProvisional: boolean })[];
+  placements: (ProposedPlacement & { isSuggested: boolean })[];
   movedToNextWeek: { source: "asana" | "personal"; reference: string }[];
   stillUnplaced: { source: "asana" | "personal"; reference: string; reason: string }[];
 };
@@ -76,8 +76,8 @@ export function buildWeekPlan(
 
   const { placements, unplaced } = proposeAutoPlacement(toPlace, freeBlocksByDay, dayOrder);
 
-  const provisionalByKey = new Map(candidates.map((c) => [keyOf(c), c.isProvisional]));
-  const finalPlacements = placements.map((p) => ({ ...p, isProvisional: provisionalByKey.get(keyOf(p)) ?? false }));
+  const suggestedByKey = new Map(candidates.map((c) => [keyOf(c), c.isSuggested]));
+  const finalPlacements = placements.map((p) => ({ ...p, isSuggested: suggestedByKey.get(keyOf(p)) ?? false }));
 
   for (const u of unplaced) stillUnplaced.push({ source: u.source, reference: u.reference, reason: u.reason });
 

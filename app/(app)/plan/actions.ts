@@ -230,7 +230,7 @@ export async function moveBlock(
     .maybeSingle();
   if (!existing) throw new Error("Block not found");
   const oldDuration = parseHHMM(existing.end_time as string) - parseHHMM(existing.start_time as string);
-  const wasProvisional = existing.status === "provisional";
+  const wasSuggested = existing.status === "suggested";
 
   const startMinutes = snapTo15(startMinutesRaw);
   const endMinutes = snapTo15(endMinutesRaw);
@@ -248,22 +248,50 @@ export async function moveBlock(
       end_time: formatHHMM(endMinutes),
       hours: (endMinutes - startMinutes) / 60,
       pinned: true, // v3: moved/resized by hand — re-planning never moves it (brief 3.5)
-      ...(wasProvisional ? { status: "planned" } : {}), // v3 6.2: confirming a provisional block clears the placeholder
+      ...(wasSuggested ? { status: "planned" } : {}), // v4 Stage 2 5.1: resizing a suggested block confirms it
       updated_at: new Date().toISOString(),
     })
     .eq("id", blockId);
   await applyMerges(supabase, user.id, weekStart, day);
 
   const newDuration = endMinutes - startMinutes;
-  // A real duration change, or confirming a provisional placeholder at all
-  // (even at its existing 1h duration), both count as "typing a real
-  // estimate" and get written back as the task's confirmed estimate.
-  if ((newDuration !== oldDuration || wasProvisional) && estimateContext) {
+  // A real duration change, or confirming a suggested estimate at all (even
+  // at its existing duration), both count as "typing a real estimate" and
+  // get written back as the task's confirmed estimate — remembered for the
+  // same stage and video type via the existing "learned" tier.
+  if ((newDuration !== oldDuration || wasSuggested) && estimateContext) {
     await setTaskEstimate(source, reference, newDuration / 60, estimateContext);
   }
 
   revalidatePath("/");
   return { warning: await checkBlockerWarning(supabase, source, reference) };
+}
+
+/**
+ * v4 Stage 2, brief section 5.1: "One tap confirms it" — accepts a
+ * suggested block exactly as placed, with no resize needed. Pins the
+ * block and writes the suggested hours back as the user's confirmed
+ * estimate, same as the resize path, just without touching day/time.
+ */
+export async function confirmSuggestedEstimate(blockId: string, source: Source, reference: string, estimateContext: EstimateContext) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const { data: existing } = await supabase
+    .from("plan_items")
+    .select("status, hours")
+    .eq("id", blockId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!existing || existing.status !== "suggested") return;
+
+  await supabase
+    .from("plan_items")
+    .update({ status: "planned", pinned: true, updated_at: new Date().toISOString() })
+    .eq("id", blockId);
+  await setTaskEstimate(source, reference, Number(existing.hours), estimateContext);
+
+  revalidatePath("/");
 }
 
 /**
@@ -332,6 +360,21 @@ export async function splitBlock(
 
   revalidatePath("/");
   return { warning: await checkBlockerWarning(supabase, insertSource, insertReference) };
+}
+
+/**
+ * v4 Stage 2, brief section 5.5: "Alongside Accept plan, each draft block
+ * can be approved or rejected." Approving a single proposed block just
+ * pins it in place — the same thing accepting the whole week does to every
+ * block at once, scoped to one.
+ */
+export async function approveDraftBlock(blockId: string) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  await supabase.from("plan_items").update({ pinned: true, updated_at: new Date().toISOString() }).eq("id", blockId).eq("user_id", user.id);
+
+  revalidatePath("/");
 }
 
 export async function removeBlock(weekStart: string, blockId: string, source: Source, reference: string, must: boolean) {
@@ -493,6 +536,9 @@ export async function saveWeekPlan(
     capacity_snapshot: capacitySnapshot,
     saved_at: new Date().toISOString(),
   });
+
+  // v4 Stage 2, brief 5.4: "Reset it when the week is accepted or the user clears it."
+  await supabase.from("chat_messages").delete().eq("user_id", user.id).eq("week_start", weekStart);
 
   revalidatePath("/");
 }

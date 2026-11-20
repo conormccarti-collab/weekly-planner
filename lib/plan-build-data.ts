@@ -3,7 +3,8 @@ import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-vi
 import { computeStageInfo, videoTypeOf } from "@/lib/asana/stage-context";
 import { STAGES } from "@/lib/asana/stage";
 import { resolveEstimatesForTasks, type EstimateTarget } from "@/lib/estimates-data";
-import { provisionalHours } from "@/lib/estimates";
+import { placementHours, type EstimateResult } from "@/lib/estimates";
+import { suggestEstimateHours } from "@/lib/chat/claude";
 import { resolvePriority } from "@/lib/priority";
 import { isDueThisWeekOrOverdue } from "@/lib/plan";
 import { loadSettings } from "@/lib/settings-data";
@@ -140,6 +141,39 @@ export async function gatherWeekBuildInputs(
     targets.push({ source: "asana", reference: gid, stage: (stageInfoByRef.get(gid)?.stage as EstimateTarget["stage"]) ?? null, videoType: videoTypeOf(task) });
   }
   const estimatesByKey = await resolveEstimatesForTasks(supabase, user.id, targets);
+  const targetByKey = new Map(targets.map((t) => [`${t.source}:${t.reference}`, t]));
+
+  /**
+   * v4 Stage 2, brief section 5.1, tier 4: the last resort before a task is
+   * left unestimated. Only called for a task that resolved to "none" with
+   * no ambiguous default to pick from — i.e. genuinely nothing else to go
+   * on. A successful suggestion is cached to `task_meta` immediately so it
+   * never needs a second model call, and so it shows up everywhere else in
+   * the app that reads estimates (task lists, Projects) as a "suggested"
+   * tier-4 value, not just inside this build pass.
+   */
+  async function withSuggestion(
+    source: "asana" | "personal",
+    reference: string,
+    estimate: EstimateResult,
+    name: string
+  ): Promise<EstimateResult> {
+    if (estimate.origin !== "none" || (estimate.ambiguousOptions && estimate.ambiguousOptions.length > 0)) return estimate;
+    const target = targetByKey.get(`${source}:${reference}`);
+    const hours = await suggestEstimateHours(name, target?.stage ?? null, target?.videoType ?? null);
+    if (hours == null) return estimate;
+    await supabase.from("task_meta").upsert({
+      user_id: user.id,
+      source,
+      reference,
+      stage: target?.stage ?? null,
+      video_type: target?.videoType ?? null,
+      estimate_hours: hours,
+      estimate_origin: "suggested",
+      updated_at: new Date().toISOString(),
+    });
+    return { hours, origin: "suggested", label: "suggested" };
+  }
 
   const candidates: BuildCandidate[] = [];
   const needsEstimatePick: { source: "asana" | "personal"; reference: string }[] = [];
@@ -152,9 +186,10 @@ export async function gatherWeekBuildInputs(
     const focusType = stageInfo?.focusType ?? null;
     if (focusType === "away" || focusType === "waiting") continue; // fixed 0h — never placed
     const key = `asana:${gid}`;
-    const estimate = estimatesByKey.get(key) ?? { hours: null, origin: "none" as const, label: "needs estimate" };
-    const provisional = provisionalHours(estimate);
-    if (provisional == null) {
+    const rawEstimate = estimatesByKey.get(key) ?? { hours: null, origin: "none" as const, label: "needs estimate" };
+    const estimate = await withSuggestion("asana", gid, rawEstimate, task.name);
+    const placement = placementHours(estimate);
+    if (placement == null) {
       needsEstimatePick.push({ source: "asana", reference: gid });
       continue;
     }
@@ -169,21 +204,25 @@ export async function gatherWeekBuildInputs(
       dueOn: task.due_on,
       priority: resolvePriority(task.custom_fields["Priority"] ?? null, priorityOverrideByRef.get(gid) ?? null),
       focusType: (focusType as "deep" | "shallow" | "away" | "waiting" | null) ?? "shallow",
-      estimateHours: provisional.hours,
+      estimateHours: placement.hours,
       blockedByGids: task.blocked_by_gids ?? [],
-      isProvisional: provisional.isProvisional,
+      isSuggested: placement.isSuggested,
     });
   }
 
   for (const t of eligiblePersonal) {
     const key = `personal:${t.id}`;
     nameByKey.set(key, t.name);
-    const estimate =
+    const rawEstimate: EstimateResult =
       t.estimate_hours != null
-        ? { hours: t.estimate_hours, origin: "user" as const, label: "your estimate" }
-        : { hours: null, origin: "none" as const, label: "needs estimate" };
-    const provisional = provisionalHours(estimate);
-    if (provisional == null) continue;
+        ? { hours: t.estimate_hours, origin: "user", label: "your estimate" }
+        : { hours: null, origin: "none", label: "needs estimate" };
+    const estimate = await withSuggestion("personal", t.id, rawEstimate, t.name);
+    const placement = placementHours(estimate);
+    if (placement == null) {
+      needsEstimatePick.push({ source: "personal", reference: t.id });
+      continue;
+    }
     const must = mustByKey.get(key) ?? false;
     candidates.push({
       source: "personal",
@@ -195,9 +234,9 @@ export async function gatherWeekBuildInputs(
       dueOn: t.due_on,
       priority: t.priority,
       focusType: "shallow",
-      estimateHours: provisional.hours,
+      estimateHours: placement.hours,
       blockedByGids: [],
-      isProvisional: provisional.isProvisional,
+      isSuggested: placement.isSuggested,
     });
   }
 

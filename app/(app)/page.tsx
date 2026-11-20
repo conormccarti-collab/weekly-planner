@@ -10,6 +10,8 @@ import { computeWeekChanges } from "@/app/(app)/plan/changes-actions";
 import { computeMorningCheck } from "@/app/(app)/morning-check/actions";
 import { WeekChangesBanner } from "@/components/week-changes-banner";
 import { WeekSummary } from "@/components/week-summary";
+import { WeekChatPanel } from "@/components/week-chat-panel";
+import { loadChatHistory } from "@/app/(app)/chat/actions";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 
@@ -39,6 +41,7 @@ export default async function WeekPage() {
   // v3 (plan-first) stage 6, brief 9.3: the morning check runs on every
   // open instead of behind a button — same pattern as refreshDraftWeek.
   const morningCheck = await computeMorningCheck();
+  const chatHistory = await loadChatHistory();
 
   return (
     <div>
@@ -47,10 +50,11 @@ export default async function WeekPage() {
         <SyncBar asana={data.asanaStatus} calendar={data.calendarStatus} />
         {weekChanges && <WeekChangesBanner initial={weekChanges} />}
         <WeekSummary data={data} nowMinutes={nowLocal.minutesFromMidnight} />
+        <WeekChatPanel initialHistory={chatHistory} />
         <Dashboard
           weekCapacityHours={data.weekCapacityHours}
           weekPlannedHours={data.weekPlannedHours}
-          weekProvisionalHours={data.weekProvisionalHours}
+          weekSuggestedHours={data.weekSuggestedHours}
           breakdown={data.breakdown}
         />
         <MorningCheckPanel initial={morningCheck} />

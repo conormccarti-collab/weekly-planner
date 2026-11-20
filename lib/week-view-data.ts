@@ -13,6 +13,7 @@ import { expandShootDateSpan, type ShootMarker } from "@/lib/asana/shoots";
 import type { EverythingElseGroup, Placement, PlannerTask } from "@/lib/planner-types";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal, type Weekday } from "@/lib/time";
 import { env } from "@/lib/env";
+import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkVideoType } from "@/lib/hygiene";
 import { orderCandidatesForPlacement, type AutoPlaceCandidate } from "@/lib/auto-placement";
 import { resolvePriority } from "@/lib/priority";
 import { STAGES } from "@/lib/asana/stage";
@@ -30,9 +31,10 @@ export type WeekViewData = {
   followingWeekStart: string;
   weekStatus: "draft" | "saved";
   weekCapacityHours: number;
+  /** Excludes suggested-status hours — brief 5.1: "excluded from the counted week total, from 'planned' hours." */
   weekPlannedHours: number;
-  /** v3 (plan-first) stage 3: the slice of weekPlannedHours still a synthetic 1h placeholder, not a confirmed estimate. */
-  weekProvisionalHours: number;
+  /** v4 Stage 2, brief 5.1: hours placed with a model-suggested (unconfirmed) estimate, shown as "plus X suggested" alongside weekPlannedHours rather than folded into it. */
+  weekSuggestedHours: number;
   breakdown: StageBreakdownRow[];
   saveRefs: { source: "asana" | "personal"; reference: string; must: boolean }[];
   shoots: ShootMarker[];
@@ -40,6 +42,8 @@ export type WeekViewData = {
   thisWeekOnlyKeys: Set<string>;
   /** v3 (plan-first) stage 4: for the summary panel's deadline-within-N-working-days check. */
   workingDays: Weekday[];
+  /** v4 Stage 2, brief 5.6: hygiene flags on this week's deliverables, for the summary panel. */
+  weekHygieneIssues: string[];
   /** v3 (plan-first) stage 4, summary section 5: next week's draft, unplaced (no room / needs estimate). */
   followingWeekUnplaced: { source: "asana" | "personal"; reference: string; name: string }[];
   /** v3 (plan-first) stage 4, summary section 5: the three highest-ranked items actually placed into next week's draft. */
@@ -271,6 +275,18 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
       ),
   ].sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999") || a.name.localeCompare(b.name));
 
+  // v4 Stage 2, brief section 5.6: "hygiene problems on this week's
+  // deliverables" — same checks as the Hygiene screen, scoped to the
+  // parent deliverables of whatever's in `thisWeekTasks`.
+  const thisWeekRootRefs = new Set(thisWeekTasks.map((t) => t.rootRef));
+  const weekHygieneIssues: string[] = [];
+  for (const group of visibleGroups) {
+    if (!thisWeekRootRefs.has(group.root.gid)) continue;
+    for (const f of [...checkGroupDates(group), ...checkColumnMatchesStage(group), ...checkBrand(group.root), ...checkVideoType(group.root)]) {
+      weekHygieneIssues.push(`${f.name}: ${f.issue}`);
+    }
+  }
+
   const everythingElseGroups: EverythingElseGroup[] = visibleGroups
     .map((group) => {
       const stageInfo = computeStageInfo(group);
@@ -334,11 +350,11 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   }));
   const weekCapacityHours = weekCapacity.reduce((sum, d) => sum + d.plannedCapacityHours, 0);
   const weekPlannedHours = thisWeekOnlyTasks.reduce(
-    (sum, t) => sum + t.placements.reduce((s, p) => s + p.hours, 0),
+    (sum, t) => sum + t.placements.reduce((s, p) => s + (p.status === "suggested" ? 0 : p.hours), 0),
     0
   );
-  const weekProvisionalHours = thisWeekOnlyTasks.reduce(
-    (sum, t) => sum + t.placements.reduce((s, p) => s + (p.status === "provisional" ? p.hours : 0), 0),
+  const weekSuggestedHours = thisWeekOnlyTasks.reduce(
+    (sum, t) => sum + t.placements.reduce((s, p) => s + (p.status === "suggested" ? p.hours : 0), 0),
     0
   );
   const breakdown = computeStageBreakdown(thisWeekOnlyTasks);
@@ -420,12 +436,13 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     weekStatus,
     weekCapacityHours,
     weekPlannedHours,
-    weekProvisionalHours,
+    weekSuggestedHours,
     breakdown,
     saveRefs: thisWeekTasks.map((t) => ({ source: t.source, reference: t.reference, must: t.must })),
     shoots,
     thisWeekOnlyKeys,
     workingDays: settings.working_days,
+    weekHygieneIssues,
     followingWeekUnplaced,
     followingWeekTopRanked,
     followingWeekPlannedHours,

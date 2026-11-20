@@ -43,6 +43,8 @@ export function CalendarGrid({
   onRemove,
   onToggleDone,
   onToggleMust,
+  onConfirmSuggested,
+  onApproveDraft,
 }: {
   label: string;
   /** v3 (plan-first): "Proposed" (this week, not yet accepted) or "Draft" (next week) — null once accepted. */
@@ -68,6 +70,14 @@ export function CalendarGrid({
   onRemove: (blockId: string, source: "asana" | "personal", reference: string, must: boolean) => void;
   onToggleDone: (blockId: string, status: string, hours: number) => void;
   onToggleMust: (source: "asana" | "personal", reference: string, must: boolean) => void;
+  onConfirmSuggested: (
+    blockId: string,
+    source: "asana" | "personal",
+    reference: string,
+    estimateContext: { stage: string | null; focusType: string | null; videoType: string | null }
+  ) => void;
+  /** v4 Stage 2, brief 5.5: approve a single proposed/draft block without accepting the whole week. */
+  onApproveDraft: (blockId: string) => void;
 }) {
   const workingDays = days.filter((d) => d.isWorkingDay);
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
@@ -189,7 +199,7 @@ export function CalendarGrid({
                   const expanded = expandedBlockId === placement.id;
                   const brand = brandColorsFor(task.brand);
                   const isProposed = !!proposedLabel && !placement.pinned;
-                  const isProvisional = placement.status === "provisional";
+                  const isSuggested = placement.status === "suggested";
                   return (
                     <div
                       key={placement.id}
@@ -227,7 +237,7 @@ export function CalendarGrid({
                       } ${expanded ? "overflow-visible" : "overflow-hidden"}`}
                       style={{
                         backgroundColor: brand.tint,
-                        backgroundImage: isProvisional
+                        backgroundImage: isSuggested
                           ? "repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(255,255,255,0.14) 4px, rgba(255,255,255,0.14) 8px)"
                           : undefined,
                         borderLeftColor: brand.edge,
@@ -241,7 +251,7 @@ export function CalendarGrid({
                       <div className="truncate font-medium text-chalk">
                         {task.name}
                         {placement.isFinal && <span className="ml-1 rounded bg-slate px-1 text-[8px] text-chalk">final</span>}
-                        {isProvisional && <span className="ml-1 rounded bg-warning-chip px-1 text-[8px] text-raven">needs estimate</span>}
+                        {isSuggested && <span className="ml-1 rounded bg-warning-chip px-1 text-[8px] text-raven">suggested</span>}
                       </div>
                       <div className="truncate text-chalk">
                         {formatHHMM(placement.startMinutes)}–{formatHHMM(placement.endMinutes)} · {brand.label}
@@ -251,11 +261,14 @@ export function CalendarGrid({
                         <BlockEditor
                           task={task}
                           placement={placement}
+                          isProposed={isProposed}
                           allDays={allDays}
                           onMove={onMove}
                           onRemove={onRemove}
                           onToggleDone={onToggleDone}
                           onToggleMust={onToggleMust}
+                          onConfirmSuggested={onConfirmSuggested}
+                          onApproveDraft={onApproveDraft}
                           onClose={() => setExpandedBlockId(null)}
                         />
                       )}
@@ -274,15 +287,19 @@ export function CalendarGrid({
 function BlockEditor({
   task,
   placement,
+  isProposed,
   allDays,
   onMove,
   onRemove,
   onToggleDone,
   onToggleMust,
+  onConfirmSuggested,
+  onApproveDraft,
   onClose,
 }: {
   task: PlannerTask;
   placement: Placement;
+  isProposed: boolean;
   allDays: DayCapacityView[];
   onMove: (
     blockId: string,
@@ -296,6 +313,13 @@ function BlockEditor({
   onRemove: (blockId: string, source: "asana" | "personal", reference: string, must: boolean) => void;
   onToggleDone: (blockId: string, status: string, hours: number) => void;
   onToggleMust: (source: "asana" | "personal", reference: string, must: boolean) => void;
+  onConfirmSuggested: (
+    blockId: string,
+    source: "asana" | "personal",
+    reference: string,
+    estimateContext: { stage: string | null; focusType: string | null; videoType: string | null }
+  ) => void;
+  onApproveDraft: (blockId: string) => void;
   onClose: () => void;
 }) {
   const [day, setDay] = useState(placement.day);
@@ -358,6 +382,32 @@ function BlockEditor({
         <button onClick={save} className="rounded bg-accent px-1.5 py-0.5 text-on-accent">
           Save
         </button>
+        {placement.status === "suggested" && (
+          <button
+            onClick={() => {
+              onConfirmSuggested(placement.id, task.source, task.reference, {
+                stage: task.stage,
+                focusType: task.focusType,
+                videoType: task.videoType,
+              });
+              onClose();
+            }}
+            className="rounded border border-border px-1.5 py-0.5 text-chalk hover:bg-surface-hover"
+          >
+            Confirm
+          </button>
+        )}
+        {isProposed && (
+          <button
+            onClick={() => {
+              onApproveDraft(placement.id);
+              onClose();
+            }}
+            className="rounded border border-border px-1.5 py-0.5 text-chalk hover:bg-surface-hover"
+          >
+            Approve
+          </button>
+        )}
         <label className="flex items-center gap-0.5">
           <input
             type="checkbox"
@@ -382,7 +432,7 @@ function BlockEditor({
           onClick={() => onRemove(placement.id, task.source, task.reference, task.must)}
           className="text-chalk-dim hover:text-danger"
         >
-          Remove
+          {isProposed ? "Reject" : "Remove"}
         </button>
       </div>
     </div>

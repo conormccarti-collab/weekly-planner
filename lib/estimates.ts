@@ -48,16 +48,18 @@ export function isCountedInTotals(origin: EstimateOrigin): boolean {
   return origin === "user" || origin === "learned" || origin === "default";
 }
 
-export type ProvisionalEstimate = { hours: number; isProvisional: boolean };
+export type PlacementEstimate = { hours: number; isSuggested: boolean };
 
 /**
- * v3 (plan-first): a task with no real estimate used to be skipped entirely,
- * leaving the week empty. Instead it gets a provisional 1h placeholder, so it
- * still gets placed — unless there are ambiguous options to pick from, which
- * already has its own one-tap resolution path and shouldn't be papered over.
+ * v4 Stage 2, brief section 5.1: a task with no user/learned/default figure
+ * gets a real model suggestion (tier 4) instead of the old synthetic 1h
+ * placeholder. It's still placed — hatched, excluded from totals, one tap
+ * from confirmed — but only when a real hours figure exists from *some*
+ * tier. "If the model is unavailable, list the task as needs estimate and
+ * do not place it" — so `estimate.hours == null` (tier 5, nothing resolved)
+ * returns null here rather than inventing a number.
  */
-export function provisionalHours(estimate: EstimateResult): ProvisionalEstimate | null {
-  if (estimate.hours != null) return { hours: estimate.hours, isProvisional: false };
-  if (estimate.ambiguousOptions && estimate.ambiguousOptions.length > 0) return null;
-  return { hours: 1, isProvisional: true };
+export function placementHours(estimate: EstimateResult): PlacementEstimate | null {
+  if (estimate.hours == null) return null;
+  return { hours: estimate.hours, isSuggested: estimate.origin === "suggested" };
 }

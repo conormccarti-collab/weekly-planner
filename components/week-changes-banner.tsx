@@ -38,7 +38,7 @@ export function WeekChangesBanner({ initial }: { initial: WeekChanges }) {
             <li key={i} className="flex items-center justify-between gap-2">
               <span>
                 {item.name}
-                {item.isProvisional && <span className="ml-1 text-chalk">(needs estimate)</span>}
+                {item.isSuggested && <span className="ml-1 text-chalk">(suggested)</span>}
               </span>
               <span className="text-chalk">
                 {WEEKDAY_LABELS[weekdayOfDateStr(item.day)]} {formatHHMM(item.startMinutes)}–{formatHHMM(item.endMinutes)}

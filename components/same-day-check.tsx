@@ -7,14 +7,12 @@ import type { EndedNotDoneBlock } from "@/lib/summary";
 import type { MorningCheckOutcome } from "@/lib/morning-check";
 
 /**
- * v3 (plan-first) stage 4, brief 7: "X was planned for 10:00 to 12:00:
- * done, behind or moved?" with one-tap answers — the same-day counterpart
- * to tomorrow's morning check, shown directly under At risk.
- *
- * "Moved" maps onto `resolveMorningCheckUpdate`'s "on_track" outcome (status
- * stays "planned", no actual-hours recorded) — the brief's three-way
- * done/behind/moved question reuses the morning check's exact resolution
- * logic rather than introducing a fourth status.
+ * v3 (plan-first) stage 4 / v4 Stage 2, brief 5.7: "X was planned for 10:00
+ * to 12:00: done, behind or moved?" with one-tap answers — the same-day
+ * counterpart to tomorrow's morning check, shown directly under At risk.
+ * "Moved" is its own outcome — it clears the placement and lets the block
+ * fall out through the normal re-plan/"things changed" path, rather than
+ * being folded into "on track".
  */
 export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
@@ -59,7 +57,7 @@ export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
               Behind
             </button>
             <button
-              onClick={() => answer(block, "on_track")}
+              onClick={() => answer(block, "moved")}
               disabled={pending}
               className="rounded border border-border px-2 py-0.5 text-chalk hover:bg-surface-hover disabled:opacity-50"
             >

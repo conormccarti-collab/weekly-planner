@@ -20,7 +20,7 @@ export type NewPlanItem = {
   day: string;
   startMinutes: number;
   endMinutes: number;
-  isProvisional: boolean;
+  isSuggested: boolean;
 };
 
 export type WeekChanges = {
@@ -54,7 +54,7 @@ export async function computeWeekChanges(weekStart: string): Promise<WeekChanges
   const ordered = orderCandidatesForPlacement(inputs.toRank);
   const { placements, unplaced } = proposeAutoPlacement(ordered, inputs.freeBlocksByDay, inputs.dayOrder);
 
-  const provisionalByKey = new Map(inputs.candidates.map((c) => [`${c.source}:${c.reference}`, c.isProvisional]));
+  const suggestedByKey = new Map(inputs.candidates.map((c) => [`${c.source}:${c.reference}`, c.isSuggested]));
   const newItems: NewPlanItem[] = placements.map((p) => ({
     source: p.source,
     reference: p.reference,
@@ -62,7 +62,7 @@ export async function computeWeekChanges(weekStart: string): Promise<WeekChanges
     day: p.day,
     startMinutes: p.startMinutes,
     endMinutes: p.endMinutes,
-    isProvisional: provisionalByKey.get(`${p.source}:${p.reference}`) ?? false,
+    isSuggested: suggestedByKey.get(`${p.source}:${p.reference}`) ?? false,
   }));
   // A new task that couldn't be placed at all (no free room this week) is
   // still a real change — it must not be silently dropped just because it
@@ -92,7 +92,7 @@ export async function applyWeekChanges(weekStart: string, items: NewPlanItem[], 
       end_time: formatHHMM(p.endMinutes),
       hours: (p.endMinutes - p.startMinutes) / 60,
       must: false,
-      status: p.isProvisional ? "provisional" : "planned",
+      status: p.isSuggested ? "suggested" : "planned",
       pinned: false,
     })),
     ...needsEstimate.map((u) => ({

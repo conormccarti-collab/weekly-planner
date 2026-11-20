@@ -22,6 +22,25 @@ export type WeekSummaryFacts = {
   atRisk: string[];
   /** Rendered as fixed-format one-tap prompts, not through the model (brief 7, "How it works" bullet 3). */
   endedNotDone: EndedNotDoneBlock[];
+  /**
+   * v4 Stage 2, brief 5.6: "about six lines for the week" — capacity,
+   * hours placed, hours free or over, the main thing at risk, tasks that
+   * did not fit and why, tasks using suggested estimates, hygiene problems
+   * on this week's deliverables. Kept separate from `atRisk` above (the
+   * Now/Next/Today/At-risk strip stays as it was) — this is the fuller,
+   * once-a-day-ish summary, not the live strip.
+   */
+  week: {
+    capacityHours: number;
+    plannedHours: number;
+    /** Positive = hours still free; negative = hours over capacity. */
+    freeOrOverHours: number;
+    mainAtRisk: string | null;
+    notFit: { name: string; reason: string }[];
+    suggestedEstimateTasks: string[];
+    hygieneIssues: string[];
+  };
+  /** v4 Stage 2, brief 5.6: "three lines for next week" — planned-vs-capacity, top three, cannot-fit. */
   nextWeek: { plannedHours: number; capacityHours: number; topThree: string[]; cannotFit: string[] };
   /** Brief 7: "The Monday summary also says how many working hours the week has and what was left out." */
   monday: { workingHours: number; leftOut: string[] } | null;
@@ -86,7 +105,7 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
   }
 
   const needsEstimateCount = data.thisWeekTasks.filter(
-    (t) => t.placements.some((p) => p.status === "provisional") || (t.placements.length === 0 && t.estimateHours == null && !t.estimateAmbiguousOptions?.length)
+    (t) => t.placements.length === 0 && t.estimateHours == null && !t.estimateAmbiguousOptions?.length
   ).length;
   if (needsEstimateCount > 0) {
     atRisk.push(`${needsEstimateCount} task${needsEstimateCount === 1 ? "" : "s"} still need${needsEstimateCount === 1 ? "s" : ""} an estimate`);
@@ -95,12 +114,28 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
   const isMonday = todayStr === data.weekStart;
   const monday = isMonday ? { workingHours: data.weekCapacityHours, leftOut: data.followingWeekUnplaced.map((u) => u.name) } : null;
 
+  const notFit = data.thisWeekTasks
+    .filter((t) => t.placements.length === 0)
+    .map((t) => ({ name: t.name, reason: t.estimateHours == null ? "needs an estimate" : "no room left this week" }));
+  const suggestedEstimateTasks = data.thisWeekTasks
+    .filter((t) => t.placements.some((p) => p.status === "suggested"))
+    .map((t) => t.name);
+
   return {
     now,
     next,
     today: { plannedHours: todayPlannedHours, capacityHours: todayCapacity, doneHours: todayDoneHours },
     atRisk,
     endedNotDone,
+    week: {
+      capacityHours: data.weekCapacityHours,
+      plannedHours: data.weekPlannedHours,
+      freeOrOverHours: data.weekCapacityHours - data.weekPlannedHours,
+      mainAtRisk: atRisk[0] ?? null,
+      notFit,
+      suggestedEstimateTasks,
+      hygieneIssues: data.weekHygieneIssues,
+    },
     nextWeek: {
       plannedHours: data.followingWeekPlannedHours,
       capacityHours: data.followingWeekCapacityHours,
@@ -141,6 +176,24 @@ export function templateSummary(facts: WeekSummaryFacts): string {
     parts.push(`At risk: ${facts.atRisk.join("; ")}.`);
   }
 
+  // v4 Stage 2, brief 5.6: the fuller ~6-line week summary, kept separate
+  // from the Now/Next/Today/At-risk strip above.
+  const freeOrOver =
+    facts.week.freeOrOverHours >= 0 ? `${facts.week.freeOrOverHours.toFixed(1)}h free` : `${Math.abs(facts.week.freeOrOverHours).toFixed(1)}h over`;
+  parts.push(`This week: ${facts.week.plannedHours.toFixed(1)}h placed of ${facts.week.capacityHours.toFixed(1)}h capacity, ${freeOrOver}.`);
+  if (facts.week.mainAtRisk) {
+    parts.push(`Main thing at risk: ${facts.week.mainAtRisk}.`);
+  }
+  if (facts.week.notFit.length > 0) {
+    parts.push(`Didn't fit: ${facts.week.notFit.map((n) => `${n.name} (${n.reason})`).join(", ")}.`);
+  }
+  if (facts.week.suggestedEstimateTasks.length > 0) {
+    parts.push(`Using a suggested estimate: ${facts.week.suggestedEstimateTasks.join(", ")}.`);
+  }
+  if (facts.week.hygieneIssues.length > 0) {
+    parts.push(`Hygiene: ${facts.week.hygieneIssues.join("; ")}.`);
+  }
+
   const topThreeNote = facts.nextWeek.topThree.length > 0 ? `, top: ${facts.nextWeek.topThree.join(", ")}` : "";
   const cannotFitNote = facts.nextWeek.cannotFit.length > 0 ? `; couldn't fit: ${facts.nextWeek.cannotFit.join(", ")}` : "";
   parts.push(
@@ -152,5 +205,5 @@ export function templateSummary(facts: WeekSummaryFacts): string {
     parts.push(`This week has ${facts.monday.workingHours.toFixed(1)} working hours${leftOutNote}.`);
   }
 
-  return parts.join(" ");
+  return parts.join("\n");
 }

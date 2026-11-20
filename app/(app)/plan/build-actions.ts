@@ -53,7 +53,7 @@ export async function refreshDraftWeek(weekStart: string): Promise<void> {
       end_time: formatHHMM(p.endMinutes),
       hours: (p.endMinutes - p.startMinutes) / 60,
       must: inputs.mustByKey.get(`${p.source}:${p.reference}`) ?? false,
-      status: p.isProvisional ? "provisional" : "planned",
+      status: p.isSuggested ? "suggested" : "planned",
       pinned: false,
     });
   }
@@ -88,5 +88,14 @@ export async function refreshDraftWeek(weekStart: string): Promise<void> {
     p_following_week_start: followingWeekStart,
     p_moved_rows: result.movedToNextWeek.map((m) => ({ source: m.source, reference: m.reference })),
   });
-  if (rpcError) throw new Error(`Failed to write the rebuilt plan: ${rpcError.message}`);
+  if (rpcError) {
+    // v4 Stage 2 writes `status: 'suggested'` rows, which migration 0017
+    // (renaming the 'provisional' constraint value) must land before this
+    // can succeed. Until then, a check-constraint failure here must not
+    // take down the whole Week page — it just means this refresh didn't
+    // happen; the week renders from whatever's already stored. A failure
+    // for any other reason still surfaces the same way (console, not silent).
+    console.error(`refreshDraftWeek: failed to write the rebuilt plan for ${weekStart}: ${rpcError.message}`);
+    return;
+  }
 }

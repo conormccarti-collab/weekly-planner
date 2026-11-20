@@ -123,7 +123,12 @@ export async function submitMorningCheck(checkedDays: string[], outcomes: Mornin
     const update = resolveMorningCheckUpdate(o.outcome, o.plannedHours, o.hoursLeft);
     await supabase
       .from("plan_items")
-      .update({ status: update.status, actual_hours: update.actualHours, updated_at: new Date().toISOString() })
+      .update({
+        status: update.status,
+        actual_hours: update.actualHours,
+        ...(update.clearPlacement ? { day: null, start_time: null, end_time: null, hours: null, pinned: false } : {}),
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", o.blockId)
       .eq("user_id", user.id);
 

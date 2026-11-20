@@ -86,7 +86,7 @@ export function MorningCheckPanel({ initial }: { initial: MorningCheckData }) {
                       </span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
-                      {(["done", "on_track", "behind"] as MorningCheckOutcome[]).map((outcome) => (
+                      {(["done", "on_track", "behind", "moved"] as MorningCheckOutcome[]).map((outcome) => (
                         <label key={outcome} className="flex items-center gap-1">
                           <input
                             type="radio"
@@ -94,7 +94,7 @@ export function MorningCheckPanel({ initial }: { initial: MorningCheckData }) {
                             checked={item.outcome === outcome}
                             onChange={() => setDrafts((d) => d!.map((x, j) => (j === i ? { ...x, outcome } : x)))}
                           />
-                          {outcome === "done" ? "Done" : outcome === "on_track" ? "On track" : "Behind"}
+                          {outcome === "done" ? "Done" : outcome === "on_track" ? "On track" : outcome === "behind" ? "Behind" : "Moved"}
                         </label>
                       ))}
                       {item.outcome === "behind" && (

@@ -11,7 +11,10 @@ import {
   setPlanMust,
   markDone,
   markNotDone,
+  confirmSuggestedEstimate,
+  approveDraftBlock,
 } from "@/app/(app)/plan/actions";
+import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { setTaskEstimate } from "@/app/(app)/tasks/actions";
 import type { PlannerTask } from "@/lib/planner-types";
 import type { DayCapacityView } from "@/lib/calendar/week-capacity";
@@ -108,6 +111,19 @@ export function PlanBoard({
     runAction(() => setPlanMust(weekStart, source, reference, !must));
   }
 
+  function confirmSuggested(blockId: string, source: Source, reference: string, estimateContext: EstimateContext) {
+    runAction(() => confirmSuggestedEstimate(blockId, source, reference, estimateContext));
+  }
+
+  function approveDraft(blockId: string) {
+    runAction(() => approveDraftBlock(blockId));
+  }
+
+  /** v4 Stage 2, brief 5.5: "A regenerate control rebuilds only unpinned blocks" — the draft-refresh engine already only ever touches unpinned/undone/future rows, so re-running it is exactly that. */
+  function regenerate() {
+    runAction(() => refreshDraftWeek(weekStart));
+  }
+
   function pickEstimate(reference: string, hours: number, context: EstimateContext) {
     runAction(() => setTaskEstimate("asana", reference, hours, context));
   }
@@ -172,6 +188,14 @@ export function PlanBoard({
         </button>
         {weekStatus === "draft" && (
           <button
+            onClick={regenerate}
+            className="rounded border border-border px-3 py-1 text-xs font-medium text-chalk hover:bg-surface-hover"
+          >
+            Regenerate
+          </button>
+        )}
+        {weekStatus === "draft" && (
+          <button
             onClick={save}
             className="rounded bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:opacity-90"
           >
@@ -196,6 +220,8 @@ export function PlanBoard({
         onRemove={remove}
         onToggleDone={toggleDone}
         onToggleMust={toggleMust}
+        onConfirmSuggested={confirmSuggested}
+        onApproveDraft={approveDraft}
       />
       <CalendarGrid
         label="Next week"
@@ -213,6 +239,8 @@ export function PlanBoard({
         onRemove={remove}
         onToggleDone={toggleDone}
         onToggleMust={toggleMust}
+        onConfirmSuggested={confirmSuggested}
+        onApproveDraft={approveDraft}
       />
 
       <div className="mt-6">

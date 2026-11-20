@@ -55,6 +55,11 @@ export async function resolveEstimatesForTasks(
     const key = `${target.source}:${target.reference}`;
     const ownMeta = metaByKey.get(key);
     const userHours = ownMeta?.estimate_origin === "user" ? ownMeta.estimate_hours : null;
+    // v4 Stage 2, tier 4: a model suggestion already generated and cached
+    // for this exact task (see `gatherWeekBuildInputs`, the only writer of
+    // `estimate_origin: "suggested"`) — read it back here rather than
+    // calling the model again on every load.
+    const suggestedHours = ownMeta?.estimate_origin === "suggested" ? ownMeta.estimate_hours : null;
 
     let learnedHours: number | null = null;
     if (target.stage && target.videoType) {
@@ -87,7 +92,7 @@ export async function resolveEstimatesForTasks(
       }
     }
 
-    results.set(key, resolveEstimate({ userHours, learnedHours, defaultHours, suggestedHours: null, ambiguousDefaults }));
+    results.set(key, resolveEstimate({ userHours, learnedHours, defaultHours, suggestedHours, ambiguousDefaults }));
   }
 
   return results;

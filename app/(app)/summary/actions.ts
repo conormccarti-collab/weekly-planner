@@ -26,7 +26,12 @@ export async function submitSameDayCheck(
   const update = resolveMorningCheckUpdate(outcome, plannedHours, hoursLeft);
   const { error } = await supabase
     .from("plan_items")
-    .update({ status: update.status, actual_hours: update.actualHours, updated_at: new Date().toISOString() })
+    .update({
+      status: update.status,
+      actual_hours: update.actualHours,
+      ...(update.clearPlacement ? { day: null, start_time: null, end_time: null, hours: null, pinned: false } : {}),
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", blockId)
     .eq("user_id", user.id);
   if (error) throw new Error(error.message);

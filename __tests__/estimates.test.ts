@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCountedInTotals, provisionalHours, resolveEstimate } from "@/lib/estimates";
+import { isCountedInTotals, placementHours, resolveEstimate } from "@/lib/estimates";
 
 const ALL_NULL = { userHours: null, learnedHours: null, defaultHours: null, suggestedHours: null };
 
@@ -63,17 +63,21 @@ describe("isCountedInTotals", () => {
   });
 });
 
-describe("provisionalHours", () => {
-  it("passes through a real estimate unchanged, not provisional", () => {
-    expect(provisionalHours({ hours: 6, origin: "default", label: "default" })).toEqual({ hours: 6, isProvisional: false });
+describe("placementHours", () => {
+  it("passes through a confirmed estimate as not suggested", () => {
+    expect(placementHours({ hours: 6, origin: "default", label: "default" })).toEqual({ hours: 6, isSuggested: false });
   });
 
-  it("gives a 1h provisional placeholder when there's no estimate at all", () => {
-    expect(provisionalHours({ hours: null, origin: "none", label: "needs estimate" })).toEqual({ hours: 1, isProvisional: true });
+  it("flags a model-suggested estimate for placement, excluded from totals downstream", () => {
+    expect(placementHours({ hours: 4, origin: "suggested", label: "suggested" })).toEqual({ hours: 4, isSuggested: true });
   });
 
-  it("defers to the one-tap picker instead when there are ambiguous options", () => {
+  it("is null (don't place) when there's no estimate at all, even from the model", () => {
+    expect(placementHours({ hours: null, origin: "none", label: "needs estimate" })).toBeNull();
+  });
+
+  it("is null when there are ambiguous options to pick from instead", () => {
     const ambiguousOptions = [{ variant: "producing", hours: 14 }];
-    expect(provisionalHours({ hours: null, origin: "none", label: "needs estimate", ambiguousOptions })).toBeNull();
+    expect(placementHours({ hours: null, origin: "none", label: "needs estimate", ambiguousOptions })).toBeNull();
   });
 });

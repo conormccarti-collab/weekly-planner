@@ -31,10 +31,32 @@ export async function buildChatContext(supabase: SupabaseClient, userId: string)
   const weekEndExclusive = addDaysToDateStr(weekStart, 7);
   const dueThisWeekOrOverdue = (taskRows.data ?? []).filter((t) => t.due_on && t.due_on < weekEndExclusive);
 
+  // v4 Stage 2, brief 5.3: "ask what's at risk" needs real computed facts to
+  // quote from, not just the due-date list above — over capacity and
+  // needs-estimate counts, the same definitions the week's own summary uses.
+  const { data: thisWeekItems } = await supabase
+    .from("plan_items")
+    .select("hours, status, day")
+    .eq("user_id", userId)
+    .eq("week_start", weekStart);
+  const plannedHours = (thisWeekItems ?? [])
+    .filter((r) => r.day != null && r.status !== "suggested")
+    .reduce((s, r) => s + Number(r.hours ?? 0), 0);
+  const needsEstimateCount = (thisWeekItems ?? []).filter((r) => r.day == null && r.status === "planned").length;
+  const atRiskLines: string[] = [];
+  if (plannedHours > thisWeekCapacity) {
+    atRiskLines.push(`At risk: this week is ${(plannedHours - thisWeekCapacity).toFixed(1)}h over capacity.`);
+  }
+  if (needsEstimateCount > 0) {
+    atRiskLines.push(`At risk: ${needsEstimateCount} task${needsEstimateCount === 1 ? "" : "s"} this week still need${needsEstimateCount === 1 ? "s" : ""} an estimate or couldn't be placed.`);
+  }
+  if (atRiskLines.length === 0) atRiskLines.push("At risk: nothing flagged right now.");
+
   const lines = [
     `Today: ${today.dateStr}`,
-    `This week (${weekStart} to ${addDaysToDateStr(weekStart, 6)}): ${thisWeekCapacity.toFixed(1)}h capacity available.`,
+    `This week (${weekStart} to ${addDaysToDateStr(weekStart, 6)}): ${thisWeekCapacity.toFixed(1)}h capacity available, ${plannedHours.toFixed(1)}h planned.`,
     `Following week (${followingWeekStart} to ${addDaysToDateStr(followingWeekStart, 6)}): ${followingWeekCapacity.toFixed(1)}h capacity available.`,
+    ...atRiskLines,
     `Tasks due this week or overdue (${dueThisWeekOrOverdue.length}):`,
     ...dueThisWeekOrOverdue
       .slice(0, 40)

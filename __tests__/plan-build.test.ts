@@ -14,7 +14,7 @@ function candidate(overrides: Partial<BuildCandidate> & { reference: string }): 
     focusType: "shallow",
     estimateHours: 1,
     blockedByGids: [],
-    isProvisional: false,
+    isSuggested: false,
     ...overrides,
   };
 }
@@ -34,7 +34,7 @@ describe("buildWeekPlan", () => {
       candidate({ reference: "must", must: true, estimateHours: 1 }),
       candidate({ reference: "deadline", hasHardDeadline: true, estimateHours: 1 }),
       candidate({ reference: "high", priority: "High", estimateHours: 1 }),
-      candidate({ reference: "noestimate", isProvisional: true, estimateHours: 1 }),
+      candidate({ reference: "noestimate", isSuggested: true, estimateHours: 1 }),
     ];
     const result = buildWeekPlan(candidates, freeBlocks(), DAY_ORDER, 100, new Map());
 
@@ -45,10 +45,10 @@ describe("buildWeekPlan", () => {
     expect(result.stillUnplaced).toEqual([]);
     expect(result.movedToNextWeek).toEqual([]);
 
-    const provisional = result.placements.find((p) => p.reference === "noestimate");
-    expect(provisional?.isProvisional).toBe(true);
+    const suggested = result.placements.find((p) => p.reference === "noestimate");
+    expect(suggested?.isSuggested).toBe(true);
     const confirmed = result.placements.find((p) => p.reference === "must");
-    expect(confirmed?.isProvisional).toBe(false);
+    expect(confirmed?.isSuggested).toBe(false);
   });
 
   it("never places a task before an unfinished blocker", () => {

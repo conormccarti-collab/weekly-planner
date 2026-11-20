@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { usePathname } from "next/navigation";
 import {
   sendChatMessage,
   confirmPersonalTasks,
@@ -23,6 +24,11 @@ type PriorityDraft = { taskName: string; newPriority: string; candidates: MatchC
 type PlanChangeDraft = { taskName: string; newDay: string; candidates: MatchCandidate[]; selected: string | null };
 
 export function ChatButton() {
+  // v4 Stage 2, brief 5.2: "Docked chat on the Week screen... It stays a
+  // pop-up on other screens" — the Week screen renders its own docked
+  // WeekChatPanel instead, so this floating button steps aside there to
+  // avoid two chat entry points on the same screen.
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [input, setInput] = useState("");
@@ -38,6 +44,8 @@ export function ChatButton() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [history, mondayDraft, ideaDraft, priorityDraft, planChangeDraft]);
+
+  if (pathname === "/") return null;
 
   function applyProposal(proposal: ChatProposal) {
     if (proposal.type === "monday_list") {
@@ -64,8 +72,14 @@ export function ChatButton() {
         candidates: proposal.candidates,
         selected: proposal.candidates[0] ? `${proposal.candidates[0].source}:${proposal.candidates[0].reference}` : null,
       });
-    } else {
+    } else if (proposal.type === "answer") {
       setHistory((h) => [...h, { kind: "answer", text: proposal.text }]);
+    } else {
+      // v4 Stage 2's edit tools (Must/remove/park/estimate) and "regenerate"
+      // are only ever offered to the docked week-chat (sendChatMessage's
+      // editTools option, never set to true from this floating popup), so
+      // this is defensive, not an expected path.
+      setHistory((h) => [...h, { kind: "error", text: "That kind of change isn't available from this chat — try it from the Week screen." }]);
     }
   }
 
