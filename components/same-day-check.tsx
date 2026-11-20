@@ -1,0 +1,74 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { submitSameDayCheck } from "@/app/(app)/summary/actions";
+import { formatHHMM } from "@/lib/time";
+import type { EndedNotDoneBlock } from "@/lib/summary";
+import type { MorningCheckOutcome } from "@/lib/morning-check";
+
+/**
+ * v3 (plan-first) stage 4, brief 7: "X was planned for 10:00 to 12:00:
+ * done, behind or moved?" with one-tap answers — the same-day counterpart
+ * to tomorrow's morning check, shown directly under At risk.
+ *
+ * "Moved" maps onto `resolveMorningCheckUpdate`'s "on_track" outcome (status
+ * stays "planned", no actual-hours recorded) — the brief's three-way
+ * done/behind/moved question reuses the morning check's exact resolution
+ * logic rather than introducing a fourth status.
+ */
+export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
+  const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function answer(block: EndedNotDoneBlock, outcome: MorningCheckOutcome) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await submitSameDayCheck(block.blockId, block.source, block.reference, outcome, block.plannedHours, null);
+        setResolvedIds((prev) => new Set(prev).add(block.blockId));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong.");
+      }
+    });
+  }
+
+  const pendingBlocks = blocks.filter((b) => !resolvedIds.has(b.blockId));
+  if (pendingBlocks.length === 0) return null;
+
+  return (
+    <ul className="mt-2 space-y-2 text-xs">
+      {pendingBlocks.map((block) => (
+        <li key={block.blockId} className="rounded bg-slate p-2">
+          <p className="text-chalk">
+            {block.name} was planned for {formatHHMM(block.startMinutes)} to {formatHHMM(block.endMinutes)}: done, behind or moved?
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => answer(block, "done")}
+              disabled={pending}
+              className="rounded border border-border px-2 py-0.5 text-chalk hover:bg-surface-hover disabled:opacity-50"
+            >
+              Done
+            </button>
+            <button
+              onClick={() => answer(block, "behind")}
+              disabled={pending}
+              className="rounded border border-border px-2 py-0.5 text-chalk hover:bg-surface-hover disabled:opacity-50"
+            >
+              Behind
+            </button>
+            <button
+              onClick={() => answer(block, "on_track")}
+              disabled={pending}
+              className="rounded border border-border px-2 py-0.5 text-chalk hover:bg-surface-hover disabled:opacity-50"
+            >
+              Moved
+            </button>
+          </div>
+        </li>
+      ))}
+      {error && <li className="text-danger">{error}</li>}
+    </ul>
+  );
+}

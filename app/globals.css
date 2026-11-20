@@ -1,26 +1,71 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-lato);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+ * Dark-mode-by-default palette (v2 changes, section D). Every value here was
+ * checked with a WCAG contrast calculator against the surfaces it's meant to
+ * sit on before being picked - see the commit message for the numbers.
+ *
+ * Deliberately NOT `@theme inline` for these: inline bakes the resolved
+ * value directly into every generated utility at build time, so a runtime
+ * override (the Settings Office picker setting --color-accent on a wrapper
+ * element) would have no effect. A plain `@theme` block still emits a real
+ * `:root` custom property AND makes utilities like `.bg-accent` reference
+ * `var(--color-accent)`, so the cascade can override it per request.
+ */
+@theme {
+  --color-raven: #1d1d1d; /* page background */
+  --color-slate: #303634; /* card/panel surfaces */
+  --color-surface-hover: #3f4543; /* hover/pressed bg for buttons & rows - pair only with chalk/on-accent text, never chalk-dim */
+  --color-chalk: #f0ecee; /* primary text, on raven or slate: 14.4:1 / 10.5:1 */
+  --color-chalk-dim: #a8a3a5; /* secondary text, on raven or slate only: 6.8:1 / 5.0:1 */
+  --color-border: #787f7c; /* dividers & outlines, 3:1+ on raven and slate */
+
+  /* App accent - default is neutral; the Settings Office picker will override this. */
+  --color-accent: #f0ecee;
+  --color-on-accent: #1d1d1d;
+
+  /* Status colors: standalone text on raven/slate (5.4-9:1) */
+  --color-danger: #f2918c;
+  --color-success: #8fcb94;
+  --color-warning: #e3b673;
+  --color-info: #92b4e0;
+
+  /* Status callout boxes: tinted bg + solid border + chalk body text (never chalk-dim inside) */
+  --color-danger-tint: #574846;
+  --color-success-tint: #435447;
+  --color-warning-tint: #545041;
+  --color-info-tint: #444f56;
+
+  /* Status chip badges: bright bg + raven text (4.3-6:1) */
+  --color-danger-chip: #c27a76;
+  --color-success-chip: #77a67c;
+  --color-warning-chip: #b69663;
+  --color-info-chip: #7a95b5;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+:root {
+  color-scheme: dark;
+}
+
+/*
+ * Tailwind always bakes the resolved literal into generated utilities
+ * (true for every @theme color, inline or not) - so .bg-accent etc. ignore
+ * any runtime change to --color-accent entirely. These plain, unlayered
+ * rules beat Tailwind's @layer utilities rules by CSS cascade rules
+ * regardless of source order, giving the Office picker's per-request
+ * override (set on a wrapper element, see app/(app)/layout.tsx) somewhere
+ * to actually take effect.
+ */
+.bg-accent {
+  background-color: var(--color-accent);
+}
+.text-accent {
+  color: var(--color-accent);
+}
+.text-on-accent {
+  color: var(--color-on-accent);
 }
