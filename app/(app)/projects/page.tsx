@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { projectLabelsFor } from "@/lib/asana/projects";
+import { partitionByEligibility } from "@/lib/asana/eligibility";
+import { projectEntriesFor } from "@/lib/asana/projects";
+import { loadSettings } from "@/lib/settings-data";
 import { loadSyncStatuses } from "@/lib/sync-status";
 import { SyncBar } from "@/components/sync-bar";
 
@@ -17,28 +19,31 @@ export default async function ProjectsPage() {
   const { data } = await supabase
     .from("asana_tasks")
     .select(
-      "gid, name, parent_gid, parent_name, project_names, section_names, due_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned"
+      "gid, name, parent_gid, parent_name, project_gids, project_names, section_names, due_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned"
     )
     .eq("completed", false)
     .eq("no_longer_assigned", false);
 
   const allTasks = (data as TaskRow[]) ?? [];
+  const settings = await loadSettings(supabase, user.id);
   const visibleGroups = groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root));
 
-  // v4: a task counts under every real project it's actually in — never a
-  // joined "A, B" label, which used to invent a phantom third "project"
-  // and steal its tasks away from both A and B's own entries.
-  const countByProject = new Map<string, number>();
-  for (const group of visibleGroups) {
-    const labels = projectLabelsFor(group.root.project_names);
-    if (labels.length === 0) continue;
+  // v5 Stage 12d.2/12d.3: "Group the Projects page by project ID... no
+  // combined names... Everything else assigned to Conor appears in a
+  // collapsed 'Outside the workflow' list."
+  const { eligible, outsideWorkflow } = partitionByEligibility(visibleGroups, settings.planned_project_gids);
+
+  const countByProjectGid = new Map<string, { name: string; count: number }>();
+  for (const group of eligible) {
+    const entries = projectEntriesFor(group.root.project_gids, group.root.project_names);
     const plannableCount = [group.root, ...group.descendants].filter((t) => t.is_plannable).length;
-    for (const label of labels) {
-      countByProject.set(label, (countByProject.get(label) ?? 0) + plannableCount);
+    for (const { gid, name } of entries) {
+      const existing = countByProjectGid.get(gid);
+      countByProjectGid.set(gid, { name, count: (existing?.count ?? 0) + plannableCount });
     }
   }
 
-  const projects = [...countByProject.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const projects = [...countByProjectGid.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
   const { asana, calendar } = await loadSyncStatuses(supabase);
 
   return (
@@ -50,15 +55,51 @@ export default async function ProjectsPage() {
       </div>
       <ul className="mt-4 divide-y divide-border">
         {projects.length === 0 && <p className="py-2 text-sm text-chalk-dim">No projects yet.</p>}
-        {projects.map(([name, count]) => (
-          <li key={name} className="flex items-center justify-between py-2 text-sm">
-            <Link href={`/projects/${encodeURIComponent(name)}`} className="text-info underline">
+        {projects.map(([gid, { name, count }]) => (
+          <li key={gid} className="flex items-center justify-between py-2 text-sm">
+            <Link href={`/projects/${gid}`} className="text-info underline">
               {name}
             </Link>
             <span className="text-xs text-chalk-dim">{count} task{count === 1 ? "" : "s"}</span>
           </li>
         ))}
       </ul>
+
+      {outsideWorkflow.length > 0 && (
+        <details className="mt-6 rounded border border-border p-3 text-sm">
+          <summary className="cursor-pointer font-medium text-chalk">
+            Outside the workflow ({outsideWorkflow.length})
+          </summary>
+          <p className="mt-2 text-xs text-chalk-dim">
+            Assigned to you, but not in a planned project (Settings → Planned projects). Other people&apos;s boards —
+            never placed, never counted, never flagged. Read-only.
+          </p>
+          <ul className="mt-2 divide-y divide-border">
+            {outsideWorkflow
+              .map((g) => ({
+                gid: g.root.gid,
+                name: g.root.name,
+                permalinkUrl: g.root.permalink_url,
+                projects: projectEntriesFor(g.root.project_gids, g.root.project_names)
+                  .map((e) => e.name)
+                  .join(", ") || "No project",
+              }))
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((t) => (
+                <li key={t.gid} className="flex items-center justify-between py-1.5 text-xs">
+                  {t.permalinkUrl ? (
+                    <a href={t.permalinkUrl} target="_blank" rel="noreferrer" className="text-info underline">
+                      {t.name}
+                    </a>
+                  ) : (
+                    <span className="text-chalk">{t.name}</span>
+                  )}
+                  <span className="text-chalk-dim">{t.projects}</span>
+                </li>
+              ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

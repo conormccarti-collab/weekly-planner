@@ -8,6 +8,7 @@ function task(overrides: Partial<TaskRow>): TaskRow {
     name: "x",
     parent_gid: "root",
     parent_name: "Deliverable",
+    project_gids: [],
     project_names: [],
     section_names: [],
     due_on: null,

@@ -1,3 +1,5 @@
+import { PIPELINE_PROJECT_GID, PRODUCTION_SHOOTS_PROJECT_GID } from "./asana/projects";
+
 export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
@@ -24,6 +26,8 @@ export type Settings = {
   office: string | null;
   /** v4 Stage 7, brief section 10: one email each weekday morning — off by default. */
   notifications_enabled: boolean;
+  /** v5 Stage 12d: project gids eligible to be planned, placed and flagged at all. Defaults to Visual Content Pipeline + Production & Shoots. */
+  planned_project_gids: string[];
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -37,4 +41,5 @@ export const DEFAULT_SETTINGS: Settings = {
   timezone: "Europe/London",
   office: null,
   notifications_enabled: false,
+  planned_project_gids: [PIPELINE_PROJECT_GID, PRODUCTION_SHOOTS_PROJECT_GID],
 };

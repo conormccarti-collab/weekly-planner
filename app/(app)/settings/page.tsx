@@ -14,6 +14,12 @@ export default async function SettingsPage() {
   const initial = user ? await loadSettings(supabase, user.id) : DEFAULT_SETTINGS;
   const estimateDefaults = await loadAllEstimateDefaults(supabase);
 
+  // v5 Stage 12d.1: "A setting 'Planned projects' lists the included
+  // projects" — every project ever seen by a sync, so the user can opt
+  // additional ones in (or the two defaults out) without typing a gid.
+  const { data: projectRows } = await supabase.from("asana_projects").select("gid, name").order("name");
+  const knownProjects = projectRows ?? [];
+
   let calendarNeedsReconnect = false;
   if (user) {
     const { data: lastCalendarSync } = await supabase
@@ -51,7 +57,7 @@ export default async function SettingsPage() {
       </section>
 
       <div className="mt-6">
-        <SettingsForm initial={initial} />
+        <SettingsForm initial={initial} knownProjects={knownProjects} />
       </div>
 
       <EstimateDefaultsForm initial={estimateDefaults} />

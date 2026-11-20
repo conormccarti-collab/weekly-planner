@@ -16,7 +16,13 @@ async function submit(_prev: FormState, formData: FormData): Promise<FormState> 
   }
 }
 
-export function SettingsForm({ initial }: { initial: Settings }) {
+export function SettingsForm({
+  initial,
+  knownProjects,
+}: {
+  initial: Settings;
+  knownProjects: { gid: string; name: string }[];
+}) {
   const [state, formAction, pending] = useActionState(submit, null);
   const [workingDays, setWorkingDays] = useState<Set<string>>(new Set(initial.working_days));
 
@@ -133,6 +139,28 @@ export function SettingsForm({ initial }: { initial: Settings }) {
         </Field>
       </section>
       <p className="-mt-4 text-xs text-chalk-dim">Sets the app&apos;s accent colour only — it never changes per-task Brand colours on the calendar.</p>
+
+      <section>
+        <h2 className="text-sm font-semibold text-chalk">Planned projects</h2>
+        <p className="mt-1 text-xs text-chalk-dim">
+          Only tasks in these projects are ever placed, counted or flagged. Everything else assigned to you shows,
+          read-only, as &quot;Outside the workflow&quot; on the Projects page.
+        </p>
+        <div className="mt-2 space-y-1">
+          {knownProjects.length === 0 && <p className="text-xs text-chalk-dim">No projects synced yet.</p>}
+          {knownProjects.map((p) => (
+            <label key={p.gid} className="flex items-center gap-2 text-sm text-chalk">
+              <input
+                type="checkbox"
+                name={`planned_project_${p.gid}`}
+                defaultChecked={initial.planned_project_gids.includes(p.gid)}
+                className="h-4 w-4"
+              />
+              {p.name}
+            </label>
+          ))}
+        </div>
+      </section>
 
       <section>
         <label className="flex items-center gap-2 text-sm text-chalk">

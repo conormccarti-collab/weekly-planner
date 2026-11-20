@@ -1,6 +1,7 @@
 import { detectStage, STAGES, type Stage } from "@/lib/asana/stage";
 import { videoTypeOf } from "@/lib/asana/stage-context";
-import { PIPELINE_PROJECT_NAME } from "@/lib/asana/projects";
+import { PIPELINE_PROJECT_GID } from "@/lib/asana/projects";
+import { isStale } from "@/lib/stale";
 import type { TaskGroup, TaskRow } from "@/lib/asana/task-view";
 
 /**
@@ -11,9 +12,21 @@ import type { TaskGroup, TaskRow } from "@/lib/asana/task-view";
  * becomes its own "root" by default. Checking it as if it were a genuine
  * deliverable is exactly the noise this excludes: a non-null `parent_gid`
  * on the root is the tell, since a real root never has one.
+ *
+ * v5 Stage 12d: matches by project gid, not name — the general eligibility
+ * gate (`lib/asana/eligibility.ts`) is gid-based for the same reason
+ * (brief 12d.3: "group by project ID"), and a project can be renamed.
  */
 export function isGenuinePipelineDeliverable(group: TaskGroup): boolean {
-  return group.root.parent_gid == null && group.root.project_names.includes(PIPELINE_PROJECT_NAME);
+  return group.root.parent_gid == null && group.root.project_gids.includes(PIPELINE_PROJECT_GID);
+}
+
+/** v5 Stage 12d.4: "A task overdue by more than 14 days is Stale... listed once... in Hygiene." */
+export function checkStale(group: TaskGroup, todayStr: string): HygieneFlag[] {
+  if (isStale(group.root.due_on, todayStr)) {
+    return [flag(group.root, `Stale — overdue since ${group.root.due_on}, needs a new date or closing`)];
+  }
+  return [];
 }
 
 export type HygieneFlag = {

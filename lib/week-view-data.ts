@@ -1,6 +1,8 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import type { SyncSourceStatus } from "@/components/sync-bar";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
+import { partitionByEligibility } from "@/lib/asana/eligibility";
+import { isStale } from "@/lib/stale";
 import { computeStageInfo, videoTypeOf, type StageInfo } from "@/lib/asana/stage-context";
 import { resolveEstimatesForTasks, type EstimateTarget } from "@/lib/estimates-data";
 import { loadSettings } from "@/lib/settings-data";
@@ -85,7 +87,7 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     supabase
       .from("asana_tasks")
       .select(
-        "gid, name, parent_gid, parent_name, project_names, section_names, due_on, start_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned, blocked_by_gids"
+        "gid, name, parent_gid, parent_name, project_gids, project_names, section_names, due_on, start_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned, blocked_by_gids"
       )
       .eq("completed", false)
       .eq("no_longer_assigned", false),
@@ -163,8 +165,16 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
 
   // v1.3: Backlog is pre-active work, hidden from planning by default —
   // drop the whole group (container + subtasks) when its root is there.
+  // v5 Stage 12d: same eligibility gate as the build (plan-build-data.ts) —
+  // "never placed, never counted as At risk, never flagged by Hygiene" for
+  // anything outside the planned projects, and the same for a Stale
+  // (14+ days overdue) deliverable.
   const allGroups = groupTasksByRoot(allTasks);
-  const visibleGroups = allGroups.filter((g) => !isInBacklog(g.root));
+  const { eligible: inWorkflowGroups } = partitionByEligibility(
+    allGroups.filter((g) => !isInBacklog(g.root)),
+    settings.planned_project_gids
+  );
+  const visibleGroups = inWorkflowGroups.filter((g) => !isStale(g.root.due_on, todayStr));
 
   const stageInfoByGroup = visibleGroups.map((group) => computeStageInfo(group));
   const taskByRef = new Map<string, TaskRow>();

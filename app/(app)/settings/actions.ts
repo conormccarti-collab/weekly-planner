@@ -38,6 +38,15 @@ export async function saveSettings(formData: FormData) {
   const office = typeof officeRaw === "string" && OFFICES.includes(officeRaw as (typeof OFFICES)[number]) ? officeRaw : null;
   const notificationsEnabled = formData.get("notifications_enabled") === "on";
 
+  // v5 Stage 12d.1: one checkbox per known project (`asana_projects`), named
+  // `planned_project_<gid>` — every checked one is included.
+  const plannedProjectGids: string[] = [];
+  for (const key of formData.keys()) {
+    if (key.startsWith("planned_project_") && formData.get(key) === "on") {
+      plannedProjectGids.push(key.slice("planned_project_".length));
+    }
+  }
+
   if (
     !Number.isFinite(hoursPerDay) ||
     !Number.isFinite(lunchMinutes) ||
@@ -60,6 +69,7 @@ export async function saveSettings(formData: FormData) {
     timezone,
     office,
     notifications_enabled: notificationsEnabled,
+    planned_project_gids: plannedProjectGids,
     updated_at: new Date().toISOString(),
   });
 

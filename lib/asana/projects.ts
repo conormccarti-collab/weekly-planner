@@ -34,3 +34,22 @@ export function projectLabelsFor(projectNames: string[]): string[] {
   if (collapsesToPipeline(projectNames)) return [PIPELINE_PROJECT_NAME];
   return projectNames;
 }
+
+/**
+ * v5 Stage 12d.3: "Group the Projects page by project ID. A task in several
+ * projects appears under each, and no combined names are made." The gid
+ * equivalent of `projectLabelsFor` — a real grouping/counting key instead of
+ * a name, so a renamed project doesn't silently split its own history, and
+ * two different projects that happen to share a name are never conflated.
+ * `projectGids`/`projectNames` are parallel arrays (same index = same
+ * project, as Asana's own API returns them and `lib/asana/sync.ts` stores
+ * them) — same Pipeline+Long Form Video collapse rule as `projectLabelsFor`,
+ * expressed over gids.
+ */
+export function projectEntriesFor(projectGids: string[], projectNames: string[]): { gid: string; name: string }[] {
+  const entries = projectGids.map((gid, i) => ({ gid, name: projectNames[i] ?? gid }));
+  const hasPipeline = entries.some((e) => e.gid === PIPELINE_PROJECT_GID);
+  const hasLongFormVideo = entries.some((e) => e.name === LONG_FORM_VIDEO_PROJECT_NAME);
+  if (hasPipeline && hasLongFormVideo) return [{ gid: PIPELINE_PROJECT_GID, name: PIPELINE_PROJECT_NAME }];
+  return entries;
+}

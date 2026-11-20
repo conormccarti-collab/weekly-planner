@@ -1,35 +1,43 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { projectLabelsFor } from "@/lib/asana/projects";
+import { projectEntriesFor } from "@/lib/asana/projects";
 import { mondayOf, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 import { ProjectNotes } from "@/components/project-notes";
 
-export default async function ProjectDetailPage({ params }: { params: Promise<{ name: string }> }) {
-  const { name } = await params;
-  const projectName = decodeURIComponent(name);
+export default async function ProjectDetailPage({ params }: { params: Promise<{ gid: string }> }) {
+  const { gid } = await params;
+  const projectGid = decodeURIComponent(gid);
 
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
   const user = userData.user;
 
   if (!user) {
-    return <h1 className="text-lg font-semibold">{projectName}</h1>;
+    return <h1 className="text-lg font-semibold">Project</h1>;
   }
 
   const { data } = await supabase
     .from("asana_tasks")
     .select(
-      "gid, name, parent_gid, parent_name, project_names, section_names, due_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned"
+      "gid, name, parent_gid, parent_name, project_gids, project_names, section_names, due_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned"
     )
     .eq("completed", false)
     .eq("no_longer_assigned", false);
 
   const allTasks = (data as TaskRow[]) ?? [];
+  // v5 Stage 12d.3: the route param is now a project gid, not a name — a
+  // renamed project keeps its own URL, and two different projects that
+  // happen to share a name are never conflated.
   const groups = groupTasksByRoot(allTasks)
     .filter((g) => !isInBacklog(g.root))
-    .filter((g) => projectLabelsFor(g.root.project_names).includes(projectName));
+    .filter((g) => projectEntriesFor(g.root.project_gids, g.root.project_names).some((e) => e.gid === projectGid));
+
+  const projectName =
+    groups
+      .flatMap((g) => projectEntriesFor(g.root.project_gids, g.root.project_names))
+      .find((e) => e.gid === projectGid)?.name ?? projectGid;
 
   const plannableTasks = groups.flatMap((g) => [g.root, ...g.descendants]).filter((t) => t.is_plannable);
   const gids = plannableTasks.map((t) => t.gid);

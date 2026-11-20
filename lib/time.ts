@@ -74,6 +74,15 @@ export function addDaysToDateStr(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Whole calendar days from `fromDateStr` to `toDateStr` (positive when `toDateStr` is later). */
+export function daysBetweenDateStrs(fromDateStr: string, toDateStr: string): number {
+  const [fy, fm, fd] = fromDateStr.split("-").map(Number);
+  const [ty, tm, td] = toDateStr.split("-").map(Number);
+  const fromUtc = Date.UTC(fy, fm - 1, fd);
+  const toUtc = Date.UTC(ty, tm - 1, td);
+  return Math.round((toUtc - fromUtc) / (24 * 60 * 60 * 1000));
+}
+
 /** Calendar-date (not timezone) weekday for a YYYY-MM-DD string. */
 export function weekdayOfDateStr(dateStr: string): Weekday {
   const [year, month, day] = dateStr.split("-").map(Number);

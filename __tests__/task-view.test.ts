@@ -6,6 +6,7 @@ function task(overrides: Partial<TaskRow> & { gid: string }): TaskRow {
     name: overrides.gid,
     parent_gid: null,
     parent_name: null,
+    project_gids: [],
     project_names: [],
     section_names: [],
     due_on: null,

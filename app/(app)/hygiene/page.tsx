@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkShootInCalendar, checkVideoType, isGenuinePipelineDeliverable, type HygieneFlag } from "@/lib/hygiene";
+import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkShootInCalendar, checkStale, checkVideoType, isGenuinePipelineDeliverable, type HygieneFlag } from "@/lib/hygiene";
+import { isStale } from "@/lib/stale";
 import { expandShootDateSpan, matchShootToCalendarEvent, type CalendarEventForMatch } from "@/lib/asana/shoots";
 import { env } from "@/lib/env";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
@@ -19,13 +20,14 @@ export default async function HygienePage() {
   const { data } = await supabase
     .from("asana_tasks")
     .select(
-      "gid, name, parent_gid, parent_name, project_names, section_names, due_on, start_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned"
+      "gid, name, parent_gid, parent_name, project_gids, project_names, section_names, due_on, start_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned"
     )
     .eq("completed", false)
     .eq("no_longer_assigned", false);
 
   const allTasks = (data as TaskRow[]) ?? [];
   const visibleGroups = groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root));
+  const todayStr = utcInstantToLocal(new Date(), env.appTimezone()).dateStr;
 
   // v4: "ignore tasks with a completed or unsynced parent, restrict to
   // Visual Content Pipeline." Production & Shoots has its own check below.
@@ -40,7 +42,16 @@ export default async function HygienePage() {
     flags.push(...checkColumnMatchesStage(group));
     flags.push(...checkBrand(group.root));
     flags.push(...checkVideoType(group.root));
+    flags.push(...checkStale(group, todayStr));
   }
+
+  // v5 Stage 12d.4: "listed once in a 'Needs a new date or closing' panel"
+  // — the same stale deliverables, deduplicated, separate from the
+  // per-field flags list above.
+  const staleDeliverables = pipelineGroups
+    .filter((g) => isStale(g.root.due_on, todayStr))
+    .map((g) => ({ gid: g.root.gid, name: g.root.name, permalinkUrl: g.root.permalink_url, dueOn: g.root.due_on as string }))
+    .sort((a, b) => a.dueOn.localeCompare(b.dueOn));
 
   // v4 Stage 4a, brief 7.4a: "An unmatched shoot gets a Hygiene flag."
   const shootTasks = allTasks.filter((t) => t.is_shoot);
@@ -79,7 +90,6 @@ export default async function HygienePage() {
 
   // Due this week or overdue first, then upcoming-dated, soonest first in
   // each group; undated tasks last, alphabetically.
-  const todayStr = utcInstantToLocal(new Date(), env.appTimezone()).dateStr;
   const thisWeekEnd = addDaysToDateStr(mondayOf(todayStr), 7); // exclusive
   function dateTier(dueOn: string | null): number {
     if (dueOn == null) return 2;
@@ -106,6 +116,31 @@ export default async function HygienePage() {
       <div className="mt-3">
         <SyncBar asana={asana} calendar={calendar} />
       </div>
+
+      {staleDeliverables.length > 0 && (
+        <div className="mt-4 rounded border border-warning bg-warning-tint p-3">
+          <h2 className="text-sm font-semibold text-chalk">
+            Needs a new date or closing ({staleDeliverables.length})
+          </h2>
+          <p className="mt-1 text-xs text-chalk-dim">
+            Overdue by more than 14 days — never placed, never counted At risk, until given a new date or closed in Asana.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {staleDeliverables.map((d) => (
+              <li key={d.gid} className="flex items-center justify-between gap-2">
+                {d.permalinkUrl ? (
+                  <a href={d.permalinkUrl} target="_blank" rel="noreferrer" className="font-medium text-info underline">
+                    {d.name}
+                  </a>
+                ) : (
+                  <span className="font-medium text-chalk">{d.name}</span>
+                )}
+                <span className="text-xs text-chalk-dim">was due {d.dueOn}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <p className="mt-3 text-sm text-chalk">
         {rows.length === 0 ? "No issues found." : `${rows.length} task${rows.length === 1 ? "" : "s"} flagged.`}

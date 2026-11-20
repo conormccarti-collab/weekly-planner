@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addDaysToDateStr,
   addWorkingDays,
+  daysBetweenDateStrs,
   formatHHMM,
   localToUtcInstant,
   mondayOf,
@@ -14,6 +15,21 @@ import {
 const MON_TO_FRI: Weekday[] = ["mon", "tue", "wed", "thu", "fri"];
 
 const LONDON = "Europe/London";
+
+describe("daysBetweenDateStrs", () => {
+  it("is 0 for the same date", () => {
+    expect(daysBetweenDateStrs("2026-11-20", "2026-11-20")).toBe(0);
+  });
+  it("is positive when the second date is later", () => {
+    expect(daysBetweenDateStrs("2026-11-01", "2026-11-20")).toBe(19);
+  });
+  it("is negative when the second date is earlier", () => {
+    expect(daysBetweenDateStrs("2026-11-20", "2026-11-01")).toBe(-19);
+  });
+  it("crosses a month boundary correctly", () => {
+    expect(daysBetweenDateStrs("2026-10-30", "2026-11-01")).toBe(2);
+  });
+});
 
 describe("parseHHMM / formatHHMM", () => {
   it("round-trips", () => {

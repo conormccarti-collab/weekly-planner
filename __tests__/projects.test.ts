@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preferredProjectName, projectLabelsFor } from "@/lib/asana/projects";
+import { PIPELINE_PROJECT_GID, PIPELINE_PROJECT_NAME, preferredProjectName, projectEntriesFor, projectLabelsFor } from "@/lib/asana/projects";
 import { isInBacklog } from "@/lib/asana/task-view";
 import type { TaskRow } from "@/lib/asana/task-view";
 
@@ -49,12 +49,39 @@ describe("projectLabelsFor", () => {
   });
 });
 
+describe("projectEntriesFor", () => {
+  it("v5 Stage 12d.3: collapses to Pipeline by gid when the task sits in both, same rule as projectLabelsFor", () => {
+    expect(projectEntriesFor(["lfv-gid", PIPELINE_PROJECT_GID], ["Long Form Video", PIPELINE_PROJECT_NAME])).toEqual([
+      { gid: PIPELINE_PROJECT_GID, name: PIPELINE_PROJECT_NAME },
+    ]);
+  });
+
+  it("returns each real project separately by gid, never joined", () => {
+    expect(projectEntriesFor(["cycling-gid", "walking-gid"], ["Cycling", "Walking"])).toEqual([
+      { gid: "cycling-gid", name: "Cycling" },
+      { gid: "walking-gid", name: "Walking" },
+    ]);
+  });
+
+  it("returns an empty list for a task in no project", () => {
+    expect(projectEntriesFor([], [])).toEqual([]);
+  });
+
+  it("doesn't collapse Pipeline alongside an unrelated project (not Long Form Video)", () => {
+    expect(projectEntriesFor([PIPELINE_PROJECT_GID, "bf-gid"], [PIPELINE_PROJECT_NAME, "Black Friday 2026"])).toEqual([
+      { gid: PIPELINE_PROJECT_GID, name: PIPELINE_PROJECT_NAME },
+      { gid: "bf-gid", name: "Black Friday 2026" },
+    ]);
+  });
+});
+
 function task(overrides: Partial<TaskRow>): TaskRow {
   return {
     gid: "x",
     name: "x",
     parent_gid: null,
     parent_name: null,
+    project_gids: [],
     project_names: [],
     section_names: [],
     due_on: null,

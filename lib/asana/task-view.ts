@@ -3,6 +3,7 @@ export type TaskRow = {
   name: string;
   parent_gid: string | null;
   parent_name: string | null;
+  project_gids: string[];
   project_names: string[];
   section_names: string[];
   due_on: string | null;

@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stableHash } from "@/lib/input-hash";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
+import { partitionByEligibility } from "@/lib/asana/eligibility";
+import { isStale } from "@/lib/stale";
 import { computeStageInfo, videoTypeOf, type StageInfo } from "@/lib/asana/stage-context";
 import { computeDeliverableLatestStarts, flatCapacityForDate } from "@/lib/back-scheduling-data";
 import { STAGES } from "@/lib/asana/stage";
@@ -43,6 +45,8 @@ export type WeekBuildInputs = {
   completedByGid: Map<string, boolean>;
   toRank: BuildCandidate[];
   inputHash: string;
+  /** v5 Stage 12d.4: deliverables overdue by more than 14 days — never placed, never At risk. */
+  staleItems: { source: "asana"; reference: string; name: string; dueOn: string | null }[];
 };
 
 /**
@@ -70,7 +74,7 @@ export async function gatherWeekBuildInputs(
     supabase
       .from("asana_tasks")
       .select(
-        "gid, name, parent_gid, parent_name, project_names, section_names, due_on, start_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned, blocked_by_gids"
+        "gid, name, parent_gid, parent_name, project_gids, project_names, section_names, due_on, start_on, completed, custom_fields, permalink_url, assignee_name, is_container, is_plannable, is_shoot, no_longer_assigned, blocked_by_gids"
       )
       .eq("completed", false)
       .eq("no_longer_assigned", false),
@@ -121,7 +125,19 @@ export async function gatherWeekBuildInputs(
     settings,
   });
 
-  const visibleGroups = groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root));
+  // v5 Stage 12d: "Plan only: tasks and subtasks in Visual Content Pipeline
+  // whose parent is not completed, tasks in Production & Shoots, and
+  // personal tasks" — everything else is never placed, never counted, never
+  // flagged. A deliverable overdue by more than 14 days is "Stale" instead
+  // (12d.4): also never placed or counted, surfaced separately so it's never
+  // silently dropped.
+  const { eligible: inWorkflowGroups } = partitionByEligibility(
+    groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root)),
+    settings.planned_project_gids
+  );
+  const staleGroups = inWorkflowGroups.filter((g) => isStale(g.root.due_on, todayStr));
+  const visibleGroups = inWorkflowGroups.filter((g) => !isStale(g.root.due_on, todayStr));
+  const staleItems = staleGroups.map((g) => ({ source: "asana" as const, reference: g.root.gid, name: g.root.name, dueOn: g.root.due_on }));
   const stageInfoByGroup = visibleGroups.map((g) => computeStageInfo(g));
   const taskByRef = new Map<string, TaskRow>();
   const stageInfoByRef = new Map<string, StageInfo>();
@@ -338,5 +354,5 @@ export async function gatherWeekBuildInputs(
     completedByGid = new Map((blockerRows ?? []).map((r) => [r.gid as string, r.completed as boolean]));
   }
 
-  return { candidates, needsEstimatePick, nameByKey, mustByKey, existingRows, protectedKeys, freeBlocksByDay, dayOrder, weekCapacityHours, completedByGid, toRank, inputHash };
+  return { candidates, needsEstimatePick, nameByKey, mustByKey, existingRows, protectedKeys, freeBlocksByDay, dayOrder, weekCapacityHours, completedByGid, toRank, inputHash, staleItems };
 }
