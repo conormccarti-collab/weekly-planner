@@ -33,6 +33,23 @@ describe("orderCandidatesForPlacement", () => {
     expect(result.map((c) => c.reference)).toEqual(["b", "a"]);
   });
 
+  it("v4 Stage 4b: an earlier latest-start date outranks priority, but not Must or hard deadline", () => {
+    const result = orderCandidatesForPlacement([
+      candidate({ reference: "a", priority: "High" }),
+      candidate({ reference: "b", latestStartDate: "2026-11-20" }),
+      candidate({ reference: "c", latestStartDate: "2026-11-18" }),
+    ]);
+    expect(result.map((c) => c.reference)).toEqual(["c", "b", "a"]);
+  });
+
+  it("v4 Stage 4b: Must and hard deadline still outrank a computed latest start", () => {
+    const result = orderCandidatesForPlacement([
+      candidate({ reference: "a", latestStartDate: "2026-11-18" }),
+      candidate({ reference: "b", must: true, latestStartDate: "2026-12-01" }),
+    ]);
+    expect(result.map((c) => c.reference)).toEqual(["b", "a"]);
+  });
+
   it("a task's own due date alone doesn't count as a hard deadline", () => {
     const result = orderCandidatesForPlacement([
       candidate({ reference: "a", priority: "High" }),

@@ -9,12 +9,13 @@ import { ensureWeekInitialized, loadWeekPlan, type PlacedItem } from "@/lib/plan
 import { computeStageBreakdown, isDueThisWeekOrOverdue, type StageBreakdownRow } from "@/lib/plan";
 import { computeFinalBlockIds } from "@/lib/blocks";
 import { toPlannerTask, toPersonalPlannerTask, type PersonalTaskRow } from "@/lib/planner-view";
-import { expandShootDateSpan, type ShootMarker } from "@/lib/asana/shoots";
+import { expandShootDateSpan, matchShootToCalendarEvent, type CalendarEventForMatch, type ShootMarker } from "@/lib/asana/shoots";
 import type { EverythingElseGroup, Placement, PlannerTask } from "@/lib/planner-types";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal, type Weekday } from "@/lib/time";
 import { env } from "@/lib/env";
 import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkVideoType } from "@/lib/hygiene";
 import { isBlocked } from "@/lib/asana/dependencies";
+import { computeDeliverableLatestStarts, flatCapacityForDate } from "@/lib/back-scheduling-data";
 import { orderCandidatesForPlacement, type AutoPlaceCandidate } from "@/lib/auto-placement";
 import { resolvePriority } from "@/lib/priority";
 import { STAGES } from "@/lib/asana/stage";
@@ -45,6 +46,8 @@ export type WeekViewData = {
   workingDays: Weekday[];
   /** v4 Stage 2, brief 5.6: hygiene flags on this week's deliverables, for the summary panel. */
   weekHygieneIssues: string[];
+  /** v4 Stage 4b, brief 7.4.7: deliverable stages whose back-scheduled latest start falls this week or has passed. */
+  startsThisWeek: { rootRef: string; deliverableName: string; stage: string; latestStartDate: string; isPastDue: boolean }[];
   /** v3 (plan-first) stage 4, summary section 5: next week's draft, unplaced (no room / needs estimate). */
   followingWeekUnplaced: { source: "asana" | "personal"; reference: string; name: string }[];
   /** v3 (plan-first) stage 4, summary section 5: the three highest-ranked items actually placed into next week's draft. */
@@ -121,17 +124,41 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
 
   // v2 (18 Nov 2026), item B.9: show shoots on the calendar by date, reading
   // Shoot Type / Location if present — nothing fails if they're absent.
-  const shoots: ShootMarker[] = allTasks
-    .filter((t) => t.is_shoot)
-    .flatMap((t) =>
-      expandShootDateSpan(t.start_on, t.due_on).map((dateStr) => ({
-        gid: t.gid,
-        name: t.name,
-        dateStr,
-        shootType: t.custom_fields["Shoot Type"] ?? null,
-        location: t.custom_fields["Location"] ?? null,
-      }))
-    );
+  // v4 Stage 4a, brief 7.4a: also match each shoot to a real calendar event
+  // (read-only — never creates or edits one) so an unmatched shoot can be
+  // flagged on Hygiene.
+  const shootTasks = allTasks.filter((t) => t.is_shoot);
+  const shootSpanByGid = new Map(shootTasks.map((t) => [t.gid, expandShootDateSpan(t.start_on, t.due_on)]));
+  const allShootDates = [...new Set([...shootSpanByGid.values()].flat())].sort();
+  let calendarEventsForShoots: CalendarEventForMatch[] = [];
+  if (allShootDates.length > 0) {
+    const { data: eventRows } = await supabase
+      .from("calendar_events")
+      .select("title, all_day, start_date, end_date, starts_at, busy, response_status")
+      .eq("user_id", user.id)
+      .or(`and(all_day.eq.true,start_date.lte.${allShootDates[allShootDates.length - 1]},end_date.gte.${allShootDates[0]}),and(all_day.eq.false,starts_at.gte.${allShootDates[0]}T00:00:00Z,starts_at.lte.${allShootDates[allShootDates.length - 1]}T23:59:59Z)`);
+    calendarEventsForShoots = (eventRows ?? []).map((r) => ({
+      title: r.title as string,
+      allDay: r.all_day as boolean,
+      startDate: r.start_date as string | null,
+      endDate: r.end_date as string | null,
+      startsAt: r.starts_at as string | null,
+      busy: r.busy as boolean,
+      responseStatus: r.response_status as string | null,
+    }));
+  }
+  const shoots: ShootMarker[] = shootTasks.flatMap((t) => {
+    const span = shootSpanByGid.get(t.gid) ?? [];
+    const matchedEvent = matchShootToCalendarEvent(t.name, span, calendarEventsForShoots);
+    return span.map((dateStr) => ({
+      gid: t.gid,
+      name: t.name,
+      dateStr,
+      shootType: t.custom_fields["Shoot Type"] ?? null,
+      location: t.custom_fields["Location"] ?? null,
+      matchedEventTitle: matchedEvent?.title ?? null,
+    }));
+  });
 
   // v1.3: Backlog is pre-active work, hidden from planning by default —
   // drop the whole group (container + subtasks) when its root is there.
@@ -168,6 +195,29 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     });
   }
   const estimatesByKey = await resolveEstimatesForTasks(supabase, user.id, targets);
+
+  // v4 Stage 4b, brief 7.4.7: "Show results on the Week screen as a short
+  // 'Starts this week' list" — a stage whose latest start falls within this
+  // week or has already passed.
+  const weekEndExclusiveForBackScheduling = addDaysToDateStr(weekStart, 7);
+  const capacityForBackScheduling = flatCapacityForDate(settings.working_days, settings.hours_per_day);
+  const startsThisWeek: { rootRef: string; deliverableName: string; stage: string; latestStartDate: string; isPastDue: boolean }[] = [];
+  for (const group of visibleGroups) {
+    if (!group.root.due_on) continue;
+    const result = computeDeliverableLatestStarts(group, stageInfoByRef, estimatesByKey, capacityForBackScheduling);
+    if (!result?.ok) continue;
+    for (const s of result.starts) {
+      if (!s.latestStartDate || s.latestStartDate >= weekEndExclusiveForBackScheduling) continue;
+      startsThisWeek.push({
+        rootRef: group.root.gid,
+        deliverableName: group.root.name,
+        stage: s.stage,
+        latestStartDate: s.latestStartDate,
+        isPastDue: s.latestStartDate < todayStr,
+      });
+    }
+  }
+  startsThisWeek.sort((a, b) => a.latestStartDate.localeCompare(b.latestStartDate));
 
   const weekStatus = plan.status;
 
@@ -456,6 +506,7 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     thisWeekOnlyKeys,
     workingDays: settings.working_days,
     weekHygieneIssues,
+    startsThisWeek,
     followingWeekUnplaced,
     followingWeekTopRanked,
     followingWeekPlannedHours,

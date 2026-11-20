@@ -1,6 +1,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { computeStageInfo, videoTypeOf } from "@/lib/asana/stage-context";
+import { computeStageInfo, videoTypeOf, type StageInfo } from "@/lib/asana/stage-context";
+import { computeDeliverableLatestStarts, flatCapacityForDate } from "@/lib/back-scheduling-data";
 import { STAGES } from "@/lib/asana/stage";
 import { resolveEstimatesForTasks, type EstimateTarget } from "@/lib/estimates-data";
 import { placementHours, type EstimateResult } from "@/lib/estimates";
@@ -101,7 +102,7 @@ export async function gatherWeekBuildInputs(
   const visibleGroups = groupTasksByRoot(allTasks).filter((g) => !isInBacklog(g.root));
   const stageInfoByGroup = visibleGroups.map((g) => computeStageInfo(g));
   const taskByRef = new Map<string, TaskRow>();
-  const stageInfoByRef = new Map<string, { stage: string | null; focusType: string }>();
+  const stageInfoByRef = new Map<string, StageInfo>();
   const rootRefByGid = new Map<string, string>();
   const rootDueOnByGid = new Map<string, string | null>();
   visibleGroups.forEach((group, i) => {
@@ -142,6 +143,36 @@ export async function gatherWeekBuildInputs(
   }
   const estimatesByKey = await resolveEstimatesForTasks(supabase, user.id, targets);
   const targetByKey = new Map(targets.map((t) => [`${t.source}:${t.reference}`, t]));
+
+  // v4 Stage 4b: back-scheduling needs every stage's estimate for any
+  // deliverable with a publish date — not just this week's eligible
+  // candidates, since a stage months out still needs a confirmed figure to
+  // compute a latest start for the stages before it. A separate, small
+  // resolution pass, scoped to exactly those extra tasks.
+  const deliverableGroups = visibleGroups.filter((g) => g.root.due_on != null);
+  const backSchedulingTargets: EstimateTarget[] = [];
+  for (const group of deliverableGroups) {
+    for (const task of group.descendants) {
+      if (!task.is_plannable || targets.some((t) => t.reference === task.gid)) continue;
+      const info = stageInfoByRef.get(task.gid);
+      if (!info?.stage) continue;
+      backSchedulingTargets.push({ source: "asana", reference: task.gid, stage: info.stage, videoType: videoTypeOf(task) });
+    }
+  }
+  const backSchedulingEstimatesByKey =
+    backSchedulingTargets.length > 0 ? await resolveEstimatesForTasks(supabase, user.id, backSchedulingTargets) : new Map();
+  const allEstimatesForBackScheduling = new Map([...estimatesByKey, ...backSchedulingEstimatesByKey]);
+
+  const capacityForDate = flatCapacityForDate(settings.working_days, settings.hours_per_day);
+  const latestStartByGid = new Map<string, string>();
+  for (const group of deliverableGroups) {
+    const result = computeDeliverableLatestStarts(group, stageInfoByRef, allEstimatesForBackScheduling, capacityForDate);
+    if (result?.ok) {
+      for (const s of result.starts) {
+        if (s.latestStartDate) latestStartByGid.set(s.gid, s.latestStartDate);
+      }
+    }
+  }
 
   /**
    * v4 Stage 2, brief section 5.1, tier 4: the last resort before a task is
@@ -201,6 +232,7 @@ export async function gatherWeekBuildInputs(
       stageOrder: stageInfo?.stage ? Math.max(0, STAGES.indexOf(stageInfo.stage as (typeof STAGES)[number])) : 0,
       must,
       hasHardDeadline: (rootDueOnByGid.get(gid) ?? null) != null || must,
+      latestStartDate: latestStartByGid.get(gid) ?? null,
       dueOn: task.due_on,
       priority: resolvePriority(task.custom_fields["Priority"] ?? null, priorityOverrideByRef.get(gid) ?? null),
       focusType: (focusType as "deep" | "shallow" | "away" | "waiting" | null) ?? "shallow",

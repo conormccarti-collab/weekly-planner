@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
-import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkVideoType, type HygieneFlag } from "@/lib/hygiene";
+import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkShootInCalendar, checkVideoType, type HygieneFlag } from "@/lib/hygiene";
+import { expandShootDateSpan, matchShootToCalendarEvent, type CalendarEventForMatch } from "@/lib/asana/shoots";
 import { env } from "@/lib/env";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
 import { loadSyncStatuses } from "@/lib/sync-status";
@@ -35,6 +36,33 @@ export default async function HygienePage() {
     flags.push(...checkColumnMatchesStage(group));
     flags.push(...checkBrand(group.root));
     flags.push(...checkVideoType(group.root));
+  }
+
+  // v4 Stage 4a, brief 7.4a: "An unmatched shoot gets a Hygiene flag."
+  const shootTasks = allTasks.filter((t) => t.is_shoot);
+  const shootSpanByGid = new Map(shootTasks.map((t) => [t.gid, expandShootDateSpan(t.start_on, t.due_on)]));
+  const allShootDates = [...new Set([...shootSpanByGid.values()].flat())].sort();
+  let calendarEventsForShoots: CalendarEventForMatch[] = [];
+  if (allShootDates.length > 0) {
+    const { data: eventRows } = await supabase
+      .from("calendar_events")
+      .select("title, all_day, start_date, end_date, starts_at, busy, response_status")
+      .eq("user_id", user.id)
+      .or(`and(all_day.eq.true,start_date.lte.${allShootDates[allShootDates.length - 1]},end_date.gte.${allShootDates[0]}),and(all_day.eq.false,starts_at.gte.${allShootDates[0]}T00:00:00Z,starts_at.lte.${allShootDates[allShootDates.length - 1]}T23:59:59Z)`);
+    calendarEventsForShoots = (eventRows ?? []).map((r) => ({
+      title: r.title as string,
+      allDay: r.all_day as boolean,
+      startDate: r.start_date as string | null,
+      endDate: r.end_date as string | null,
+      startsAt: r.starts_at as string | null,
+      busy: r.busy as boolean,
+      responseStatus: r.response_status as string | null,
+    }));
+  }
+  for (const shoot of shootTasks) {
+    const span = shootSpanByGid.get(shoot.gid) ?? [];
+    const matched = matchShootToCalendarEvent(shoot.name, span, calendarEventsForShoots) != null;
+    flags.push(...checkShootInCalendar(shoot, matched));
   }
 
   const byTask = new Map<string, { name: string; permalinkUrl: string | null; dueOn: string | null; issues: string[] }>();

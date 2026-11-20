@@ -11,6 +11,7 @@ import { computeMorningCheck } from "@/app/(app)/morning-check/actions";
 import { WeekChangesBanner } from "@/components/week-changes-banner";
 import { WeekSummary } from "@/components/week-summary";
 import { WeekChatPanel } from "@/components/week-chat-panel";
+import { StartsThisWeekList } from "@/components/starts-this-week";
 import { loadChatHistory } from "@/app/(app)/chat/actions";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
@@ -51,6 +52,7 @@ export default async function WeekPage() {
         {weekChanges && <WeekChangesBanner initial={weekChanges} />}
         <WeekSummary data={data} nowMinutes={nowLocal.minutesFromMidnight} />
         <WeekChatPanel initialHistory={chatHistory} />
+        <StartsThisWeekList items={data.startsThisWeek} />
         <Dashboard
           weekCapacityHours={data.weekCapacityHours}
           weekPlannedHours={data.weekPlannedHours}

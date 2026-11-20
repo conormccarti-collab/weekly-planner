@@ -50,6 +50,12 @@ export function checkUnmatchedStage(task: TaskRow): HygieneFlag[] {
   return [];
 }
 
+/** v4 Stage 4a, brief 7.4a: "An unmatched [shoot] gets a Hygiene flag, 'Shoot not in calendar'." Caller supplies the match result — this file has no calendar access of its own. */
+export function checkShootInCalendar(task: TaskRow, matched: boolean): HygieneFlag[] {
+  if (!matched) return [flag(task, "Shoot not in calendar")];
+  return [];
+}
+
 /**
  * Group-level date checks: missing publish date on the parent, missing due
  * date on the Edit subtask, missing shoot date on a shoot task. v2 (18 Nov

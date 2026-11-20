@@ -158,6 +158,7 @@ export function CalendarGrid({
                   {(shoot.shootType || shoot.location) && (
                     <span className="text-chalk"> ({[shoot.shootType, shoot.location].filter(Boolean).join(", ")})</span>
                   )}
+                  {shoot.matchedEventTitle && <span className="text-chalk"> · {shoot.matchedEventTitle}</span>}
                 </div>
               ))}
               <div

@@ -27,6 +27,8 @@ export type AutoPlaceCandidate = {
   must: boolean;
   /** v2 (18 Nov 2026): a publish date on the parent deliverable, or a Must flag — not just any due date on the task itself. */
   hasHardDeadline: boolean;
+  /** v4 Stage 4b, brief 7.4.8: the back-scheduled latest start for this task's stage, or null/undefined when none was computable (no publish date, no estimate, etc.) — sorts after every computed date. */
+  latestStartDate?: string | null;
   dueOn: string | null;
   /** Already resolved: override beats Asana (brief section 9). */
   priority: string | null;
@@ -59,15 +61,18 @@ function priorityRank(priority: string | null): number {
 }
 
 /**
- * The four-tier sort key (brief: "Must, then hard deadline, then priority
- * ..., then due date"), with "stages of the same deliverable keep their
- * order" layered on top: a deliverable's tasks are kept together in
- * stage-pipeline order, at the position its best-ranked member earns.
+ * The five-tier sort key (brief 7.4.8: "Must, hard deadline, latest start,
+ * priority, due date" — the latest-start tier sits between hard deadline
+ * and priority), with "stages of the same deliverable keep their order"
+ * layered on top: a deliverable's tasks are kept together in stage-pipeline
+ * order, at the position its best-ranked member earns.
  */
 export function orderCandidatesForPlacement(candidates: AutoPlaceCandidate[]): AutoPlaceCandidate[] {
   const sorted = [...candidates].sort((a, b) => {
     if (a.must !== b.must) return a.must ? -1 : 1;
     if (a.hasHardDeadline !== b.hasHardDeadline) return a.hasHardDeadline ? -1 : 1;
+    const latestStartDiff = (a.latestStartDate ?? "9999-99-99").localeCompare(b.latestStartDate ?? "9999-99-99");
+    if (latestStartDiff !== 0) return latestStartDiff;
     const priorityDiff = priorityRank(a.priority) - priorityRank(b.priority);
     if (priorityDiff !== 0) return priorityDiff;
     return (a.dueOn ?? "9999-99-99").localeCompare(b.dueOn ?? "9999-99-99");

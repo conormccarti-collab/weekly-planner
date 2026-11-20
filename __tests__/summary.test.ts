@@ -78,6 +78,7 @@ function makeData(overrides: Partial<WeekViewData> = {}): WeekViewData {
     weekPlannedHours: 0,
     weekSuggestedHours: 0,
     weekHygieneIssues: [],
+    startsThisWeek: [],
     breakdown: [],
     saveRefs: [],
     shoots: [],
