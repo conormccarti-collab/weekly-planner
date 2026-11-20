@@ -36,6 +36,7 @@ export async function saveSettings(formData: FormData) {
   const timezone = String(formData.get("timezone"));
   const officeRaw = formData.get("office");
   const office = typeof officeRaw === "string" && OFFICES.includes(officeRaw as (typeof OFFICES)[number]) ? officeRaw : null;
+  const notificationsEnabled = formData.get("notifications_enabled") === "on";
 
   if (
     !Number.isFinite(hoursPerDay) ||
@@ -58,6 +59,7 @@ export async function saveSettings(formData: FormData) {
     min_deep_work_block_minutes: minDeepWorkBlockMinutes,
     timezone,
     office,
+    notifications_enabled: notificationsEnabled,
     updated_at: new Date().toISOString(),
   });
 

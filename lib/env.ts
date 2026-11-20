@@ -19,4 +19,6 @@ export const env = {
   googleOauthClientSecret: () => required("GOOGLE_OAUTH_CLIENT_SECRET"),
   anthropicApiKey: () => required("ANTHROPIC_API_KEY"),
   anthropicModel: () => process.env.ANTHROPIC_MODEL || "claude-opus-5-5",
+  resendApiKey: () => required("RESEND_API_KEY"),
+  cronSecret: () => process.env.CRON_SECRET || null,
 };

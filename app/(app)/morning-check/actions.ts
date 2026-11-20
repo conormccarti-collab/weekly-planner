@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { loadSettings } from "@/lib/settings-data";
 import { getWeekCapacity } from "@/lib/calendar/week-capacity";
@@ -34,7 +35,17 @@ export async function computeMorningCheck(): Promise<MorningCheckData> {
   const { data: userData } = await supabase.auth.getUser();
   const user = userData.user;
   if (!user) throw new Error("Not signed in");
+  return computeMorningCheckFor(supabase, user.id);
+}
 
+/**
+ * v4 Stage 7: the morning-check-outstanding section of the daily
+ * notification needs this same computation with no session (a cron
+ * request, not a signed-in browser) — split out so both call sites share
+ * one implementation rather than two copies drifting apart.
+ */
+export async function computeMorningCheckFor(supabase: SupabaseClient, userId: string): Promise<MorningCheckData> {
+  const user = { id: userId };
   const timezone = env.appTimezone();
   const todayStr = utcInstantToLocal(new Date(), timezone).dateStr;
   const weekStart = mondayOf(todayStr);

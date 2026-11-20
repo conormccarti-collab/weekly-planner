@@ -22,6 +22,8 @@ export type Settings = {
   timezone: string;
   /** v2 changes, section D: sets the app's accent colour only — never per-task Brand. */
   office: string | null;
+  /** v4 Stage 7, brief section 10: one email each weekday morning — off by default. */
+  notifications_enabled: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,4 +36,5 @@ export const DEFAULT_SETTINGS: Settings = {
   min_deep_work_block_minutes: 60,
   timezone: "Europe/London",
   office: null,
+  notifications_enabled: false,
 };

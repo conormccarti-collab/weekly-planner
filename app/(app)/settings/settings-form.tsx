@@ -134,6 +134,17 @@ export function SettingsForm({ initial }: { initial: Settings }) {
       </section>
       <p className="-mt-4 text-xs text-chalk-dim">Sets the app&apos;s accent colour only — it never changes per-task Brand colours on the calendar.</p>
 
+      <section>
+        <label className="flex items-center gap-2 text-sm text-chalk">
+          <input type="checkbox" name="notifications_enabled" defaultChecked={initial.notifications_enabled} className="h-4 w-4" />
+          Email me a morning summary on working days
+        </label>
+        <p className="mt-1 text-xs text-chalk-dim">
+          Covers the morning check if it&apos;s still outstanding, deadline risks, and Hygiene flags on this week&apos;s
+          deliverables. Sent only when there&apos;s something to report.
+        </p>
+      </section>
+
       <div className="flex items-center gap-3">
         <button
           type="submit"
