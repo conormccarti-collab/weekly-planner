@@ -3,6 +3,8 @@ import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-vi
 import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkVideoType, type HygieneFlag } from "@/lib/hygiene";
 import { env } from "@/lib/env";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
+import { loadSyncStatuses } from "@/lib/sync-status";
+import { SyncBar } from "@/components/sync-bar";
 
 export default async function HygienePage() {
   const supabase = await createClient();
@@ -57,6 +59,7 @@ export default async function HygienePage() {
     if (a[1].dueOn !== b[1].dueOn) return (a[1].dueOn ?? "9999-99-99").localeCompare(b[1].dueOn ?? "9999-99-99");
     return a[1].name.localeCompare(b[1].name);
   });
+  const { asana, calendar } = await loadSyncStatuses(supabase);
 
   return (
     <div>
@@ -66,6 +69,9 @@ export default async function HygienePage() {
         Brand, Video Type, missing dates, and a card sitting in the wrong column for its earliest unfinished
         stage. Due this week or overdue first, then upcoming-dated, then undated.
       </p>
+      <div className="mt-3">
+        <SyncBar asana={asana} calendar={calendar} />
+      </div>
 
       <p className="mt-3 text-sm text-chalk">
         {rows.length === 0 ? "No issues found." : `${rows.length} task${rows.length === 1 ? "" : "s"} flagged.`}

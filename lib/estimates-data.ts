@@ -21,10 +21,10 @@ type TaskMetaEstimateRow = {
 
 type DefaultRow = { video_type: string; stage: string; hours: number; variant: string };
 
-/** v2 (18 Nov 2026): Video Type matching is case-insensitive, so "youtube narrative" still matches "Youtube Narrative". */
+/** v2 (18 Nov 2026) / v4 Stage 3, brief 6.4: case-insensitive and whitespace-trimmed, so " youtube narrative" still matches "Youtube Narrative". */
 function sameVideoType(a: string | null, b: string | null): boolean {
   if (a == null || b == null) return false;
-  return a.toLowerCase() === b.toLowerCase();
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 /**

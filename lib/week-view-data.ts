@@ -14,6 +14,7 @@ import type { EverythingElseGroup, Placement, PlannerTask } from "@/lib/planner-
 import { addDaysToDateStr, mondayOf, utcInstantToLocal, type Weekday } from "@/lib/time";
 import { env } from "@/lib/env";
 import { checkBrand, checkColumnMatchesStage, checkGroupDates, checkVideoType } from "@/lib/hygiene";
+import { isBlocked } from "@/lib/asana/dependencies";
 import { orderCandidatesForPlacement, type AutoPlaceCandidate } from "@/lib/auto-placement";
 import { resolvePriority } from "@/lib/priority";
 import { STAGES } from "@/lib/asana/stage";
@@ -247,6 +248,17 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     else thisWeekPersonalRefs.add(reference);
   }
 
+  // v4 Stage 3, brief 6.2: "a task placed before the task that blocks it is
+  // complete shows a warning on the block." A blocker already done is never
+  // in `allTasks` (that query excludes completed rows entirely), so this
+  // needs its own small lookup rather than reusing `taskByRef`.
+  const thisWeekBlockerGids = [...new Set([...thisWeekAsanaRefs].flatMap((gid) => taskByRef.get(gid)?.blocked_by_gids ?? []))];
+  let blockerCompletedByGid = new Map<string, boolean>();
+  if (thisWeekBlockerGids.length > 0) {
+    const { data: blockerRows } = await supabase.from("asana_tasks").select("gid, completed").in("gid", thisWeekBlockerGids);
+    blockerCompletedByGid = new Map((blockerRows ?? []).map((r) => [r.gid as string, r.completed as boolean]));
+  }
+
   const thisWeekTasks: PlannerTask[] = [
     ...[...thisWeekAsanaRefs]
       .map((gid) => taskByRef.get(gid))
@@ -260,7 +272,8 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
           placementsByKey.get(`asana:${task.gid}`) ?? [],
           priorityOverrideByRef.get(task.gid) ?? null,
           rootRefByGid.get(task.gid) ?? task.gid,
-          rootDueOnByGid.get(task.gid) ?? task.due_on
+          rootDueOnByGid.get(task.gid) ?? task.due_on,
+          isBlocked(task.blocked_by_gids ?? [], blockerCompletedByGid)
         )
       ),
     ...[...thisWeekPersonalRefs]

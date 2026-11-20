@@ -50,6 +50,7 @@ export function toPersonalPlannerTask(task: PersonalTaskRow, must: boolean, plac
     estimateDisplay: task.estimate_hours != null ? `${task.estimate_hours}h` : "needs estimate",
     must,
     placements,
+    isBlocked: false,
   };
 }
 
@@ -61,7 +62,8 @@ export function toPlannerTask(
   placements: Placement[],
   priorityOverride: string | null = null,
   rootRef: string = task.gid,
-  rootDueOn: string | null = task.due_on
+  rootDueOn: string | null = task.due_on,
+  isBlocked: boolean = false
 ): PlannerTask {
   const focusType = stageInfo?.focusType ?? null;
   const fixedZeroHours = focusType === "away" || focusType === "waiting";
@@ -88,5 +90,6 @@ export function toPlannerTask(
     estimateAmbiguousOptions: fixedZeroHours ? undefined : est.ambiguousOptions,
     must,
     placements,
+    isBlocked,
   };
 }

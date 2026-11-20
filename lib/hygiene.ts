@@ -1,4 +1,5 @@
 import { detectStage, STAGES, type Stage } from "@/lib/asana/stage";
+import { videoTypeOf } from "@/lib/asana/stage-context";
 import type { TaskGroup, TaskRow } from "@/lib/asana/task-view";
 
 export type HygieneFlag = {
@@ -22,16 +23,16 @@ export const KNOWN_VIDEO_TYPES = [
 ] as const;
 
 function isKnownVideoType(value: string): boolean {
-  return KNOWN_VIDEO_TYPES.some((known) => known.toLowerCase() === value.toLowerCase());
+  return KNOWN_VIDEO_TYPES.some((known) => known.toLowerCase() === value.trim().toLowerCase());
 }
 
 function flag(task: Pick<TaskRow, "gid" | "name" | "permalink_url">, issue: string): HygieneFlag {
   return { gid: task.gid, name: task.name, permalinkUrl: task.permalink_url, issue };
 }
 
-/** Video Type blank, or not one of the nine known values. */
+/** Video Type blank, or not one of the nine known values — after the same trim/synonym normalization `videoTypeOf` applies everywhere else. */
 export function checkVideoType(task: TaskRow): HygieneFlag[] {
-  const videoType = task.custom_fields["Video Type"];
+  const videoType = videoTypeOf(task);
   if (videoType == null) return [flag(task, "Video Type is blank")];
   if (!isKnownVideoType(videoType)) return [flag(task, `Video Type "${videoType}" isn't one of the nine known values`)];
   return [];

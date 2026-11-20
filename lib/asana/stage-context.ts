@@ -31,7 +31,18 @@ export function computeStageInfo(group: TaskGroup): Map<string, StageInfo> {
   return result;
 }
 
-/** v1.3 renamed "Content Type" to "Video Type" everywhere (brief section 2). */
+/**
+ * v1.3 renamed "Content Type" to "Video Type" everywhere (brief section 2).
+ * v4 Stage 3, brief 6.4: trims whitespace, and on Production & Shoots
+ * specifically accepts "Trade Partner" as a synonym for "Trade" (matching
+ * is otherwise done case-insensitively by the caller, e.g. `sameVideoType`).
+ */
 export function videoTypeOf(task: TaskRow): string | null {
-  return task.custom_fields["Video Type"] ?? null;
+  const raw = task.custom_fields["Video Type"];
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  if (trimmed.toLowerCase() === "trade partner" && task.project_names.includes("Production & Shoots")) {
+    return "Trade";
+  }
+  return trimmed;
 }

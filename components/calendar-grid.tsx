@@ -252,6 +252,11 @@ export function CalendarGrid({
                         {task.name}
                         {placement.isFinal && <span className="ml-1 rounded bg-slate px-1 text-[8px] text-chalk">final</span>}
                         {isSuggested && <span className="ml-1 rounded bg-warning-chip px-1 text-[8px] text-raven">suggested</span>}
+                        {task.isBlocked && (
+                          <span title="Still waiting on a blocker" className="ml-1 rounded bg-danger-tint px-1 text-[8px] text-danger">
+                            blocked
+                          </span>
+                        )}
                       </div>
                       <div className="truncate text-chalk">
                         {formatHHMM(placement.startMinutes)}–{formatHHMM(placement.endMinutes)} · {brand.label}

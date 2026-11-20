@@ -42,6 +42,7 @@ function makeTask(overrides: Partial<PlannerTask> = {}): PlannerTask {
     estimateDisplay: "1h",
     must: false,
     placements: [],
+    isBlocked: false,
     ...overrides,
   };
 }

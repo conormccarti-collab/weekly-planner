@@ -84,4 +84,20 @@ describe("videoTypeOf", () => {
   it("is null when there's no Video Type field", () => {
     expect(videoTypeOf(task({ custom_fields: {} }))).toBeNull();
   });
+
+  it("trims whitespace (v4 Stage 3, brief 6.4)", () => {
+    expect(videoTypeOf(task({ custom_fields: { "Video Type": "  Paid " } }))).toBe("Paid");
+  });
+
+  it("accepts \"Trade Partner\" as Trade on Production & Shoots", () => {
+    expect(
+      videoTypeOf(task({ project_names: ["Production & Shoots"], custom_fields: { "Video Type": "Trade Partner" } }))
+    ).toBe("Trade");
+  });
+
+  it("does not apply the Trade Partner synonym outside Production & Shoots", () => {
+    expect(
+      videoTypeOf(task({ project_names: ["Visual Content Pipeline"], custom_fields: { "Video Type": "Trade Partner" } }))
+    ).toBe("Trade Partner");
+  });
 });

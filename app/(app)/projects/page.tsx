@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { groupTasksByRoot, isInBacklog, type TaskRow } from "@/lib/asana/task-view";
 import { preferredProjectName } from "@/lib/asana/projects";
+import { loadSyncStatuses } from "@/lib/sync-status";
+import { SyncBar } from "@/components/sync-bar";
 
 export default async function ProjectsPage() {
   const supabase = await createClient();
@@ -32,11 +34,15 @@ export default async function ProjectsPage() {
   }
 
   const projects = [...countByProject.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const { asana, calendar } = await loadSyncStatuses(supabase);
 
   return (
     <div>
       <h1 className="text-lg font-semibold">Projects</h1>
       <p className="mt-1 text-sm text-chalk-dim">One page per project: its tasks, planned hours this week, and notes.</p>
+      <div className="mt-3">
+        <SyncBar asana={asana} calendar={calendar} />
+      </div>
       <ul className="mt-4 divide-y divide-border">
         {projects.length === 0 && <p className="py-2 text-sm text-chalk-dim">No projects yet.</p>}
         {projects.map(([name, count]) => (

@@ -21,6 +21,8 @@ export type PlannerTask = {
   estimateAmbiguousOptions?: { variant: string; hours: number }[];
   must: boolean;
   placements: Placement[];
+  /** v4 Stage 3, brief 6.2: a manually-placed block whose task is still waiting on an unfinished blocker shows a warning on the block. */
+  isBlocked: boolean;
 };
 
 export type Placement = {
