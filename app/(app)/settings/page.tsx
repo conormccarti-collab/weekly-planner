@@ -21,6 +21,7 @@ export default async function SettingsPage() {
   const knownProjects = projectRows ?? [];
 
   let calendarNeedsReconnect = false;
+  let recentSyncFailures = 0;
   if (user) {
     const { data: lastCalendarSync } = await supabase
       .from("sync_log")
@@ -30,7 +31,18 @@ export default async function SettingsPage() {
       .limit(1)
       .maybeSingle();
     calendarNeedsReconnect = lastCalendarSync?.ok === false && lastCalendarSync.error === "RECONNECT_REQUIRED";
+
+    // v5 Stage 12a.5: "show a small 'problems' count in Settings" — recent
+    // sync failures are a real, already-logged signal; no new table needed.
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { count } = await supabase
+      .from("sync_log")
+      .select("id", { count: "exact", head: true })
+      .eq("ok", false)
+      .gte("started_at", sevenDaysAgo);
+    recentSyncFailures = count ?? 0;
   }
+  const sentryConfigured = !!process.env.SENTRY_DSN;
 
   return (
     <div>
@@ -53,6 +65,18 @@ export default async function SettingsPage() {
         <div className="mt-2 flex items-center justify-between rounded border border-border px-3 py-2 text-sm">
           <span>Asana</span>
           <span className="text-chalk-dim">Connected (server token)</span>
+        </div>
+      </section>
+
+      <section className="mt-6 max-w-xl">
+        <h2 className="text-sm font-semibold text-chalk">Problems</h2>
+        <div className="mt-2 flex items-center justify-between rounded border border-border px-3 py-2 text-sm">
+          <span>Sync failures (last 7 days)</span>
+          <span className={recentSyncFailures > 0 ? "text-danger" : "text-chalk-dim"}>{recentSyncFailures}</span>
+        </div>
+        <div className="mt-2 flex items-center justify-between rounded border border-border px-3 py-2 text-sm">
+          <span>Error logging</span>
+          <span className="text-chalk-dim">{sentryConfigured ? "Sentry configured" : "Sentry not configured (SENTRY_DSN unset)"}</span>
         </div>
       </section>
 

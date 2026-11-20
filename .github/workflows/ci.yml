@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+
+  e2e:
+    name: End-to-end tests (Playwright)
+    # v5 Stage 12b: blocked on a sign-in method (see __tests__/e2e/README.md)
+    # — this job is a no-op until PLAYWRIGHT_STORAGE_STATE (or whichever
+    # secret the chosen method needs) exists, so a push isn't permanently
+    # red over something still pending a decision.
+    if: ${{ vars.E2E_READY == 'true' }}
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Write storage state
+        run: |
+          mkdir -p __tests__/e2e/.auth
+          echo "${{ secrets.PLAYWRIGHT_STORAGE_STATE }}" > __tests__/e2e/.auth/storage-state.json
+      - run: npm run test:e2e
