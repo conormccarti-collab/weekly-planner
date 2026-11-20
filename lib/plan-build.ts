@@ -37,6 +37,49 @@ export function partitionProtected(rows: ExistingRow[], todayStr: string): { pro
   return { protectedKeys, unprotectedKeys };
 }
 
+export type ExistingRowWithHours = ExistingRow & { hours: number | null };
+
+/**
+ * v4, "Behind with hours left": the Behind row itself stays protected as
+ * history (via `partitionProtected` above, unchanged); this is the task's
+ * still-unplaced remainder. Sized to `remaining_hours` minus whatever's
+ * already committed elsewhere this week (pinned, or Done — anything that
+ * survives a rebuild) — a plain unpinned row doesn't count, since it's
+ * about to be deleted and rebuilt by this same pass regardless. Self-
+ * stabilizing: once the remainder is placed and pinned (or done), the next
+ * rebuild sees it in that subtraction and stops regenerating more. Returns
+ * one extra candidate per task that still has hours left, cloned from its
+ * normal candidate (same must/priority/stage) so it ranks and places
+ * exactly like any other candidate.
+ */
+export function behindRemainderCandidates(
+  candidates: BuildCandidate[],
+  existingRows: ExistingRowWithHours[],
+  remainingHoursByKey: Map<string, number>
+): BuildCandidate[] {
+  const candidateByKey = new Map(candidates.map((c) => [keyOf(c), c]));
+  const extra: BuildCandidate[] = [];
+
+  for (const [key, remainingHours] of remainingHoursByKey) {
+    const hasBehindRowThisWeek = existingRows.some((r) => r.key === key && r.status === "behind");
+    if (!hasBehindRowThisWeek) continue;
+    // "Already committed" is anything that'll survive this rebuild other
+    // than the Behind row itself (which is exactly what `remainingHours`
+    // already corrects for) — a pinned block, or a Done one (Done survives
+    // regardless of pinned, same as `partitionProtected`'s own rule).
+    const alreadyCommittedHours = existingRows
+      .filter((r) => r.key === key && r.status !== "behind" && (r.pinned || r.status === "done"))
+      .reduce((sum, r) => sum + (r.hours ?? 0), 0);
+    const template = candidateByKey.get(key);
+    const effectiveRemaining = remainingHours - alreadyCommittedHours;
+    if (template && effectiveRemaining > 0) {
+      extra.push({ ...template, estimateHours: effectiveRemaining, isSuggested: false });
+    }
+  }
+
+  return extra;
+}
+
 export type BuildResult = {
   placements: (ProposedPlacement & { isSuggested: boolean })[];
   movedToNextWeek: { source: "asana" | "personal"; reference: string }[];

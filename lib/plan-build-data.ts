@@ -11,7 +11,7 @@ import { isDueThisWeekOrOverdue } from "@/lib/plan";
 import { loadSettings } from "@/lib/settings-data";
 import { getWeekCapacity } from "@/lib/calendar/week-capacity";
 import { subtractOccupied, type Range } from "@/lib/blocks";
-import { partitionProtected, type BuildCandidate, type ExistingRow } from "@/lib/plan-build";
+import { partitionProtected, behindRemainderCandidates, type BuildCandidate, type ExistingRow } from "@/lib/plan-build";
 import type { FreeBlock } from "@/lib/auto-placement";
 import { addDaysToDateStr, mondayOf, parseHHMM, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
@@ -26,6 +26,7 @@ export type ExistingDbRow = {
   pinned: boolean;
   start_time: string | null;
   end_time: string | null;
+  hours: number | null;
 };
 
 export type WeekBuildInputs = {
@@ -72,10 +73,10 @@ export async function gatherWeekBuildInputs(
       .eq("completed", false)
       .eq("no_longer_assigned", false),
     supabase.from("personal_tasks").select("id, name, estimate_hours, priority, due_on").eq("user_id", user.id).eq("completed", false),
-    supabase.from("task_meta").select("source, reference, parked, priority_override").eq("user_id", user.id),
+    supabase.from("task_meta").select("source, reference, parked, priority_override, remaining_hours").eq("user_id", user.id),
     supabase
       .from("plan_items")
-      .select("id, source, reference, day, must, status, pinned, start_time, end_time")
+      .select("id, source, reference, day, must, status, pinned, start_time, end_time, hours")
       .eq("user_id", user.id)
       .eq("week_start", weekStart),
     getWeekCapacity(supabase, user.id, timezone, settings, weekStart, { useActualStarts: weekStart === mondayOf(todayStr) }),
@@ -96,6 +97,12 @@ export async function gatherWeekBuildInputs(
   const parkedKeys = new Set(metaRows.filter((r) => r.parked).map((r) => `${r.source}:${r.reference}`));
   const priorityOverrideByRef = new Map(
     metaRows.filter((r) => r.priority_override != null).map((r) => [r.reference, r.priority_override as string])
+  );
+  // v4: "Behind with hours left" — the Behind block itself stays protected
+  // as history (brief 3.5's protection rule, unchanged); this is the
+  // task's still-unplaced remainder.
+  const remainingHoursByKey = new Map(
+    metaRows.filter((r) => r.remaining_hours != null).map((r) => [`${r.source}:${r.reference}`, Number(r.remaining_hours)])
   );
   const existingRows = (existingResult.data ?? []) as ExistingDbRow[];
 
@@ -283,6 +290,16 @@ export async function gatherWeekBuildInputs(
   const { protectedKeys } = partitionProtected(existingForPartition, todayStr);
 
   const toRank = candidates.filter((c) => !protectedKeys.has(`${c.source}:${c.reference}`));
+
+  // v4, "Behind with hours left" — see `behindRemainderCandidates` for the
+  // full reasoning; this just adapts `existingRows`' shape for it.
+  toRank.push(
+    ...behindRemainderCandidates(
+      candidates,
+      existingRows.map((r) => ({ key: `${r.source}:${r.reference}`, day: r.day, pinned: r.pinned, status: r.status, hours: r.hours })),
+      remainingHoursByKey
+    )
+  );
 
   const protectedOccupiedByDay = new Map<string, Range[]>();
   for (const r of existingRows) {

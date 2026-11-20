@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekPlan, partitionProtected, type BuildCandidate, type ExistingRow } from "@/lib/plan-build";
+import { buildWeekPlan, partitionProtected, behindRemainderCandidates, type BuildCandidate, type ExistingRow, type ExistingRowWithHours } from "@/lib/plan-build";
 import type { FreeBlock } from "@/lib/auto-placement";
 
 function candidate(overrides: Partial<BuildCandidate> & { reference: string }): BuildCandidate {
@@ -112,5 +112,71 @@ describe("partitionProtected", () => {
   it("treats an unplaced row (day null) as unprotected unless pinned/done/behind", () => {
     const result = partitionProtected([row({ key: "unplaced", day: null })], "2026-11-20");
     expect(result.unprotectedKeys.has("unplaced")).toBe(true);
+  });
+});
+
+describe("behindRemainderCandidates", () => {
+  function existingRow(overrides: Partial<ExistingRowWithHours> & { key: string }): ExistingRowWithHours {
+    return { day: "2026-11-18", pinned: false, status: "behind", hours: null, ...overrides };
+  }
+
+  it("produces a remainder candidate sized to the full remaining hours when nothing else is pinned", () => {
+    const candidates = [candidate({ reference: "a", estimateHours: 14 })];
+    const existing = [existingRow({ key: "asana:a", status: "behind" })];
+    const result = behindRemainderCandidates(candidates, existing, new Map([["asana:a", 5]]));
+    expect(result).toEqual([{ ...candidates[0], estimateHours: 5, isSuggested: false }]);
+  });
+
+  it("subtracts hours already pinned down later this week", () => {
+    const candidates = [candidate({ reference: "a" })];
+    const existing = [
+      existingRow({ key: "asana:a", status: "behind" }),
+      existingRow({ key: "asana:a", status: "planned", pinned: true, hours: 2 }),
+    ];
+    const result = behindRemainderCandidates(candidates, existing, new Map([["asana:a", 5]]));
+    expect(result[0].estimateHours).toBe(3);
+  });
+
+  it("does not subtract an unpinned later block — it's about to be rebuilt by this same pass anyway", () => {
+    const candidates = [candidate({ reference: "a" })];
+    const existing = [
+      existingRow({ key: "asana:a", status: "behind" }),
+      existingRow({ key: "asana:a", status: "planned", pinned: false, hours: 2 }),
+    ];
+    const result = behindRemainderCandidates(candidates, existing, new Map([["asana:a", 5]]));
+    expect(result[0].estimateHours).toBe(5);
+  });
+
+  it("produces nothing once the pinned remainder already covers the full hours left (self-stabilizing)", () => {
+    const candidates = [candidate({ reference: "a" })];
+    const existing = [
+      existingRow({ key: "asana:a", status: "behind" }),
+      existingRow({ key: "asana:a", status: "planned", pinned: true, hours: 5 }),
+    ];
+    const result = behindRemainderCandidates(candidates, existing, new Map([["asana:a", 5]]));
+    expect(result).toEqual([]);
+  });
+
+  it("produces nothing when there's no Behind row this week for that task (stale or unrelated remaining_hours)", () => {
+    const candidates = [candidate({ reference: "a" })];
+    const existing = [existingRow({ key: "asana:a", status: "planned" })];
+    const result = behindRemainderCandidates(candidates, existing, new Map([["asana:a", 5]]));
+    expect(result).toEqual([]);
+  });
+
+  it("produces nothing when the task has no matching normal candidate (e.g. no longer eligible)", () => {
+    const existing = [existingRow({ key: "asana:gone", status: "behind" })];
+    const result = behindRemainderCandidates([], existing, new Map([["asana:gone", 5]]));
+    expect(result).toEqual([]);
+  });
+
+  it("a Done later block counts as already committed too, even unpinned — Done always survives a rebuild", () => {
+    const candidates = [candidate({ reference: "a" })];
+    const existing = [
+      existingRow({ key: "asana:a", status: "behind" }),
+      existingRow({ key: "asana:a", status: "done", pinned: false, hours: 2 }),
+    ];
+    const result = behindRemainderCandidates(candidates, existing, new Map([["asana:a", 5]]));
+    expect(result[0].estimateHours).toBe(3);
   });
 });
