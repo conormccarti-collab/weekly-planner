@@ -264,7 +264,20 @@ export async function moveBlock(
   }
 
   revalidatePath("/");
-  return { warning: await checkBlockerWarning(supabase, source, reference) };
+
+  // v4 Stage 10, brief section 13: "moving a block past its due date
+  // proposes a new due date." A proposal only — nothing is written to
+  // Asana here; the UI shows Approve/Reject and only an explicit Approve
+  // calls app/(app)/write-back/actions.ts.
+  let dueDateProposal: { gid: string; name: string; oldDueOn: string; newDay: string } | undefined;
+  if (source === "asana") {
+    const { data: task } = await supabase.from("asana_tasks").select("name, due_on").eq("gid", reference).maybeSingle();
+    if (task?.due_on && day > (task.due_on as string)) {
+      dueDateProposal = { gid: reference, name: task.name as string, oldDueOn: task.due_on as string, newDay: day };
+    }
+  }
+
+  return { warning: await checkBlockerWarning(supabase, source, reference), dueDateProposal };
 }
 
 /**

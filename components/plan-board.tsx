@@ -19,6 +19,7 @@ import { setTaskEstimate } from "@/app/(app)/tasks/actions";
 import type { PlannerTask } from "@/lib/planner-types";
 import type { DayCapacityView } from "@/lib/calendar/week-capacity";
 import { CalendarGrid, type Dragging } from "@/components/calendar-grid";
+import { WriteBackDueDateReview, type DueDateProposal } from "@/components/write-back-review";
 import type { ShootMarker } from "@/lib/asana/shoots";
 import { WEEKDAY_LABELS } from "@/lib/settings";
 import { formatHHMM, mondayOf } from "@/lib/time";
@@ -55,11 +56,15 @@ export function PlanBoard({
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [dueDateProposal, setDueDateProposal] = useState<DueDateProposal | null>(null);
 
   const allDays = [...days, ...followingDays];
   const unplaced = thisWeekTasks.filter((t) => t.placements.length === 0);
 
-  function runAction(action: () => Promise<void | { warning?: string }>) {
+  function runAction<T extends { warning?: string } | void>(
+    action: () => Promise<T>,
+    onResult?: (result: T) => void
+  ) {
     startTransition(async () => {
       try {
         const result = await action();
@@ -67,6 +72,7 @@ export function PlanBoard({
           setWarning(result.warning);
           setTimeout(() => setWarning(null), 6000);
         }
+        onResult?.(result);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong");
         setTimeout(() => setError(null), 4000);
@@ -87,7 +93,12 @@ export function PlanBoard({
     end: number,
     estimateContext: EstimateContext
   ) {
-    runAction(() => moveBlock(mondayOf(day), blockId, source, reference, day, start, end, estimateContext));
+    runAction(
+      () => moveBlock(mondayOf(day), blockId, source, reference, day, start, end, estimateContext),
+      (result) => {
+        if (result?.dueDateProposal) setDueDateProposal(result.dueDateProposal);
+      }
+    );
   }
 
   function split(targetBlockId: string, insertSource: Source, insertReference: string, insertStart: number, insertDurationMinutes: number) {
@@ -177,6 +188,7 @@ export function PlanBoard({
           {warning}
         </div>
       )}
+      <WriteBackDueDateReview proposal={dueDateProposal} onDone={() => setDueDateProposal(null)} />
       <div className="mb-3 flex items-center justify-end gap-2">
         {copied && <span className="text-xs text-success">Copied</span>}
         {weekStatus === "saved" && <span className="text-xs text-chalk-dim">Accepted</span>}

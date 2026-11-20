@@ -5,6 +5,7 @@ import { submitSameDayCheck } from "@/app/(app)/summary/actions";
 import { formatHHMM } from "@/lib/time";
 import type { EndedNotDoneBlock } from "@/lib/summary";
 import type { MorningCheckOutcome } from "@/lib/morning-check";
+import { WriteBackCompleteReview, type CompleteProposal } from "@/components/write-back-review";
 
 /**
  * v3 (plan-first) stage 4 / v4 Stage 2, brief 5.7: "X was planned for 10:00
@@ -17,6 +18,7 @@ import type { MorningCheckOutcome } from "@/lib/morning-check";
 export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [completeProposals, setCompleteProposals] = useState<CompleteProposal[]>([]);
   const [pending, startTransition] = useTransition();
 
   function answer(block: EndedNotDoneBlock, outcome: MorningCheckOutcome) {
@@ -25,6 +27,11 @@ export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
       try {
         await submitSameDayCheck(block.blockId, block.source, block.reference, outcome, block.plannedHours, null);
         setResolvedIds((prev) => new Set(prev).add(block.blockId));
+        // Brief section 13 (Stage 10): same write-back proposal as the
+        // morning check, for the same-day "done" case.
+        if (outcome === "done" && block.source === "asana") {
+          setCompleteProposals((p) => [...p, { gid: block.reference, name: block.name }]);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
       }
@@ -32,10 +39,12 @@ export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
   }
 
   const pendingBlocks = blocks.filter((b) => !resolvedIds.has(b.blockId));
-  if (pendingBlocks.length === 0) return null;
+  if (pendingBlocks.length === 0) return <WriteBackCompleteReview proposals={completeProposals} />;
 
   return (
-    <ul className="mt-2 space-y-2 text-xs">
+    <>
+      <WriteBackCompleteReview proposals={completeProposals} />
+      <ul className="mt-2 space-y-2 text-xs">
       {pendingBlocks.map((block) => (
         <li key={block.blockId} className="rounded bg-slate p-2">
           <p className="text-chalk">
@@ -67,6 +76,7 @@ export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
         </li>
       ))}
       {error && <li className="text-danger">{error}</li>}
-    </ul>
+      </ul>
+    </>
   );
 }
