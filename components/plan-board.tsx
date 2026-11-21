@@ -398,6 +398,11 @@ function PlacementPicker({
   const defaultDurationMinutes = Math.max(15, Math.round(((task.estimateHours ?? 0.25) * 60) / 15) * 15);
   const [start, setStart] = useState<number | null>(null);
   const [duration, setDuration] = useState(defaultDurationMinutes);
+  // v5 Stage 12e.3 fix: same bug as the placed-block editor — a fixed
+  // preset list doesn't include every real estimate (e.g. 3.5h/210min),
+  // so the <select> shows no matching option (visually defaulting to the
+  // first, 0.25h) while the real duration sits unseen underneath.
+  const durationOptions = [...new Set([15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480, defaultDurationMinutes])].sort((a, b) => a - b);
 
   const dayView = workingDays.find((d) => d.dateStr === day);
   const options = dayView ? timeOptions(dayView.windowStartMinutes, dayView.windowEndMinutes) : [];
@@ -431,7 +436,7 @@ function PlacementPicker({
         ))}
       </select>
       <select value={duration} onChange={(e) => setDuration(Number(e.target.value))} className="rounded border border-border bg-slate px-0.5 text-chalk">
-        {[15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420, 480].map((d) => (
+        {durationOptions.map((d) => (
           <option key={d} value={d}>
             {(d / 60).toFixed(2).replace(/\.?0+$/, "")}h
           </option>

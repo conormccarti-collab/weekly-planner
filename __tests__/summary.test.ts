@@ -144,6 +144,16 @@ describe("buildWeekSummaryFacts", () => {
     expect(facts.endedNotDone.map((b) => b.blockId)).toEqual(["ended-planned"]);
   });
 
+  it("v5 Stage 12e.5: an ended-not-done subtask carries its parent name, for the same-day check prompt", () => {
+    const task = makeTask({
+      name: "Edit",
+      parentName: "Arran Trip Video",
+      placements: [makePlacement({ id: "ended-planned", startMinutes: 9 * 60, endMinutes: 10 * 60, status: "planned" })],
+    });
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 11 * 60);
+    expect(facts.endedNotDone[0].parentName).toBe("Arran Trip Video");
+  });
+
   it("flags a deadline within two working days", () => {
     const task = makeTask({ name: "Deliver cut", dueOn: "2026-11-18" });
     const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task] }), MON_TO_FRI, 9 * 60);

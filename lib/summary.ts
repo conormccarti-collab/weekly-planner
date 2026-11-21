@@ -48,6 +48,8 @@ export type EndedNotDoneBlock = {
   source: "asana" | "personal";
   reference: string;
   name: string;
+  /** v5 Stage 12e.5: "Parent names on every subtask wherever a subtask is shown." */
+  parentName: string | null;
   startMinutes: number;
   endMinutes: number;
   plannedHours: number;
@@ -112,6 +114,7 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
         source: task.source,
         reference: task.reference,
         name: task.name,
+        parentName: task.parentName,
         startMinutes: p.startMinutes,
         endMinutes: p.endMinutes,
         plannedHours: p.hours,

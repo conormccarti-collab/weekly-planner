@@ -48,7 +48,8 @@ export function SameDayCheckList({ blocks }: { blocks: EndedNotDoneBlock[] }) {
       {pendingBlocks.map((block) => (
         <li key={block.blockId} className="rounded bg-slate p-2">
           <p className="text-chalk">
-            {block.name} was planned for {formatHHMM(block.startMinutes)} to {formatHHMM(block.endMinutes)}: done, behind or moved?
+            {block.parentName ? `${block.parentName} — ${block.name}` : block.name} was planned for {formatHHMM(block.startMinutes)} to{" "}
+            {formatHHMM(block.endMinutes)}: done, behind or moved?
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <button

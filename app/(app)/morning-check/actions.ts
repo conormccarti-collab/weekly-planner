@@ -14,6 +14,8 @@ export type MorningCheckItem = {
   source: "asana" | "personal";
   reference: string;
   name: string;
+  /** v5 Stage 12e.5: "Parent names on every subtask wherever a subtask is shown." */
+  parentName: string | null;
   day: string;
   plannedHours: number;
 };
@@ -77,8 +79,8 @@ export async function computeMorningCheckFor(supabase: SupabaseClient, userId: s
 
   const [asanaTasksResult, personalTasksResult] = await Promise.all([
     asanaRefs.length > 0
-      ? supabase.from("asana_tasks").select("gid, name, completed").in("gid", asanaRefs)
-      : Promise.resolve({ data: [] as { gid: string; name: string; completed: boolean }[] }),
+      ? supabase.from("asana_tasks").select("gid, name, parent_name, completed").in("gid", asanaRefs)
+      : Promise.resolve({ data: [] as { gid: string; name: string; parent_name: string | null; completed: boolean }[] }),
     personalRefs.length > 0
       ? supabase.from("personal_tasks").select("id, name, completed").in("id", personalRefs)
       : Promise.resolve({ data: [] as { id: string; name: string; completed: boolean }[] }),
@@ -103,6 +105,7 @@ export async function computeMorningCheckFor(supabase: SupabaseClient, userId: s
       source: row.source as "asana" | "personal",
       reference: row.reference,
       name,
+      parentName: row.source === "asana" ? (task as { parent_name: string | null } | undefined)?.parent_name ?? null : null,
       day: row.day as string,
       plannedHours: Number(row.hours ?? 0),
     });

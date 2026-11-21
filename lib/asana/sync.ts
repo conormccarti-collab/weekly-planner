@@ -49,6 +49,27 @@ function blockedByGidsOf(task: AsanaTask): string[] {
   return (task.dependencies ?? []).map((d) => d.gid);
 }
 
+/**
+ * v5 Stage 12e.4 fix: the real bug behind "Brand/Video Type inheritance
+ * is broken" — `customFieldsToMap` always has an entry for every workspace
+ * custom field on every task, Asana included, even when it's unset
+ * (`display_value: null`). A plain object spread `{...parent, ...own}`
+ * can't tell "own doesn't have this field" from "own has it, explicitly
+ * unset" - the second case always overwrites the parent's real value with
+ * null. This merges per-key instead: the child's own value wins only when
+ * it's actually set.
+ */
+export function mergeCustomFields(
+  parent: Record<string, string | null>,
+  own: Record<string, string | null>
+): Record<string, string | null> {
+  const merged = { ...parent };
+  for (const [key, value] of Object.entries(own)) {
+    if (value != null) merged[key] = value;
+  }
+  return merged;
+}
+
 function projectsAndSections(task: AsanaTask): {
   projectGids: string[];
   projectNames: string[];
@@ -86,7 +107,7 @@ async function collectSubtasksRecursively(
     // Brief section 5: "Subtasks do not carry [custom fields] themselves" —
     // inherit Content Type, Brand, etc. from the parent, letting the
     // subtask's own value (if ever set) take precedence.
-    const customFields = { ...parentCustomFields, ...customFieldsToMap(subtask) };
+    const customFields = mergeCustomFields(parentCustomFields, customFieldsToMap(subtask));
 
     tasksByGid.set(subtask.gid, {
       gid: subtask.gid,
@@ -118,48 +139,80 @@ async function collectSubtasksRecursively(
   }
 }
 
-/** Walk up the parent chain (up to 3 levels) to find project/section info subtasks don't carry themselves. */
+/**
+ * Walk up the parent chain (up to 3 levels) to find project/section info
+ * and custom fields (Brand, Video Type, ...) a subtask doesn't carry
+ * itself. Reuses an already-fetched ancestor from `tasksByGid` (e.g. one
+ * `collectSubtasksRecursively` already stored) instead of refetching it —
+ * this runs for every directly-assigned subtask with a parent, so without
+ * the cache check it would double the Asana API calls for a task tree
+ * that's already been walked the other way.
+ *
+ * v5 Stage 12e.4 fix: a subtask reached via `directTasks` (because it's
+ * *also* individually assigned to the user, not only discovered through
+ * its container) used to get only its own custom fields here — never
+ * merged with the parent's — so Brand/Video Type silently came back blank
+ * for exactly that case, even though `collectSubtasksRecursively`'s own
+ * merge was already correct for a purely-recursively-discovered subtask.
+ */
 async function resolveAncestorContext(
   task: AsanaTask,
   tasksByGid: Map<string, StoredTask>
-): Promise<{ projectGids: string[]; projectNames: string[]; sectionNames: string[] }> {
-  let current = task;
-  for (let i = 0; i < MAX_SUBTASK_DEPTH && current.parent; i++) {
-    const parent = await getTask(current.parent.gid);
-    const { projectGids, projectNames, sectionNames } = projectsAndSections(parent);
+): Promise<{ projectGids: string[]; projectNames: string[]; sectionNames: string[]; customFields: Record<string, string | null> }> {
+  let parentRef = task.parent;
+  let immediateParentCustomFields: Record<string, string | null> | null = null;
 
-    if (!tasksByGid.has(parent.gid)) {
-      tasksByGid.set(parent.gid, {
-        gid: parent.gid,
-        name: parent.name,
-        parent_gid: parent.parent?.gid ?? null,
-        parent_name: parent.parent?.name ?? null,
-        project_gids: projectGids,
-        project_names: projectNames,
-        section_names: sectionNames,
-        due_on: parent.due_on,
-        start_on: parent.start_on,
-        completed: parent.completed,
-        completed_at: parent.completed_at,
-        custom_fields: customFieldsToMap(parent),
-        subtask_count: parent.num_subtasks ?? 0,
-        permalink_url: parent.permalink_url,
-        assignee_gid: parent.assignee?.gid ?? null,
-        assignee_name: parent.assignee?.name ?? null,
-        is_container: (parent.num_subtasks ?? 0) > 0,
-        is_plannable: false,
-        is_shoot: false,
-        blocked_by_gids: blockedByGidsOf(parent),
-        asana_modified_at: parent.modified_at,
-      });
+  for (let i = 0; i < MAX_SUBTASK_DEPTH && parentRef; i++) {
+    const cached = tasksByGid.get(parentRef.gid);
+    if (cached) {
+      if (immediateParentCustomFields == null) immediateParentCustomFields = cached.custom_fields;
+      if (cached.project_gids.length > 0) {
+        return {
+          projectGids: cached.project_gids,
+          projectNames: cached.project_names,
+          sectionNames: cached.section_names,
+          customFields: immediateParentCustomFields,
+        };
+      }
+      parentRef = cached.parent_gid ? { gid: cached.parent_gid, name: cached.parent_name ?? "" } : null;
+      continue;
     }
+
+    const parent = await getTask(parentRef.gid);
+    const { projectGids, projectNames, sectionNames } = projectsAndSections(parent);
+    const parentCustomFields = customFieldsToMap(parent);
+    if (immediateParentCustomFields == null) immediateParentCustomFields = parentCustomFields;
+
+    tasksByGid.set(parent.gid, {
+      gid: parent.gid,
+      name: parent.name,
+      parent_gid: parent.parent?.gid ?? null,
+      parent_name: parent.parent?.name ?? null,
+      project_gids: projectGids,
+      project_names: projectNames,
+      section_names: sectionNames,
+      due_on: parent.due_on,
+      start_on: parent.start_on,
+      completed: parent.completed,
+      completed_at: parent.completed_at,
+      custom_fields: parentCustomFields,
+      subtask_count: parent.num_subtasks ?? 0,
+      permalink_url: parent.permalink_url,
+      assignee_gid: parent.assignee?.gid ?? null,
+      assignee_name: parent.assignee?.name ?? null,
+      is_container: (parent.num_subtasks ?? 0) > 0,
+      is_plannable: false,
+      is_shoot: false,
+      blocked_by_gids: blockedByGidsOf(parent),
+      asana_modified_at: parent.modified_at,
+    });
 
     if (projectGids.length > 0) {
-      return { projectGids, projectNames, sectionNames };
+      return { projectGids, projectNames, sectionNames, customFields: immediateParentCustomFields };
     }
-    current = parent;
+    parentRef = parent.parent;
   }
-  return { projectGids: [], projectNames: [], sectionNames: [] };
+  return { projectGids: [], projectNames: [], sectionNames: [], customFields: immediateParentCustomFields ?? {} };
 }
 
 export async function runAsanaSync(supabase: SupabaseClient, userId: string) {
@@ -181,15 +234,29 @@ export async function runAsanaSync(supabase: SupabaseClient, userId: string) {
       assignedGids.add(task.gid);
       const isContainer = (task.num_subtasks ?? 0) > 0;
       let { projectGids, projectNames, sectionNames } = projectsAndSections(task);
+      let ancestorCustomFields: Record<string, string | null> = {};
 
-      if (task.parent && projectGids.length === 0) {
+      // v5 Stage 12e.4 fix: resolve ancestor context (for the custom-field
+      // merge below) whenever this task has a parent at all — not only
+      // when it's missing its own project, which used to skip the Brand/
+      // Video Type inheritance entirely for a subtask that's in a project
+      // directly but still carries no custom fields of its own.
+      if (task.parent) {
         const ancestorContext = await resolveAncestorContext(task, tasksByGid);
-        projectGids = ancestorContext.projectGids;
-        projectNames = ancestorContext.projectNames;
-        sectionNames = ancestorContext.sectionNames;
+        ancestorCustomFields = ancestorContext.customFields;
+        if (projectGids.length === 0) {
+          projectGids = ancestorContext.projectGids;
+          projectNames = ancestorContext.projectNames;
+          sectionNames = ancestorContext.sectionNames;
+        }
       }
 
-      const taskCustomFields = customFieldsToMap(task);
+      // Brief section 5: "Subtasks do not carry [custom fields] themselves"
+      // — inherit Brand, Video Type etc. from the parent, letting the
+      // task's own value (if ever set) take precedence. Same merge
+      // `collectSubtasksRecursively` already does for a subtask discovered
+      // only through its container.
+      const taskCustomFields = mergeCustomFields(ancestorCustomFields, customFieldsToMap(task));
 
       tasksByGid.set(task.gid, {
         gid: task.gid,

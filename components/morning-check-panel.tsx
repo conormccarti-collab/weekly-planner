@@ -90,7 +90,8 @@ export function MorningCheckPanel({ initial }: { initial: MorningCheckData }) {
                   <li key={item.blockId} className="rounded bg-slate p-2">
                     <div className="flex items-center justify-between gap-2">
                       <span>
-                        {item.name} <span className="text-chalk-dim">({item.day}, {item.plannedHours}h planned)</span>
+                        {item.parentName ? `${item.parentName} — ${item.name}` : item.name}{" "}
+                        <span className="text-chalk-dim">({item.day}, {item.plannedHours}h planned)</span>
                       </span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
