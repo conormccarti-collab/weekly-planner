@@ -10,6 +10,18 @@ export type DayCapacityInput = {
   allDayBusy: boolean;
   /** Real calendar events only — already resolved for declined/free (brief section 7). */
   busyIntervals: Interval[];
+  /**
+   * v5 Stage 12g §C: off by default — when false, no break is reserved at
+   * all (capacity math matches hoursPerDay exactly, no lunch window added).
+   * "fixed" is today's unconditional behaviour (lunchStartMinutes, always).
+   * "flexible" floats lunchMinutes somewhere free inside
+   * [lunchWindowStart, lunchWindowEnd), dodging any meeting in that window,
+   * instead of a clock time that can collide with one.
+   */
+  lunchEnabled?: boolean;
+  lunchMode?: "fixed" | "flexible";
+  lunchWindowStart?: number;
+  lunchWindowEnd?: number;
 };
 
 export type FreeBlock = Interval;
@@ -18,9 +30,11 @@ export type DayCapacityResult = {
   capacityHours: number;
   plannedCapacityHours: number;
   freeBlocks: FreeBlock[];
+  /** The actual reserved lunch slot (fixed time, or wherever flexible mode landed it) — null when lunch is off, or there's no working window to put it in. */
+  lunchInterval: Interval | null;
 };
 
-const EMPTY_RESULT: DayCapacityResult = { capacityHours: 0, plannedCapacityHours: 0, freeBlocks: [] };
+const EMPTY_RESULT: DayCapacityResult = { capacityHours: 0, plannedCapacityHours: 0, freeBlocks: [], lunchInterval: null };
 
 function clip(interval: Interval, windowStart: number, windowEnd: number): Interval | null {
   const start = Math.max(interval.startMinutes, windowStart);
@@ -67,13 +81,33 @@ function subtract(window: Interval, blocked: Interval[]): Interval[] {
  * lunch is excluded from free blocks but is not separately subtracted from
  * capacity hours (only real events are).
  */
+function findFlexibleLunchStart(
+  dayWindow: Interval,
+  lunchMinutes: number,
+  lunchWindow: Interval,
+  busy: Interval[]
+): number {
+  const searchStart = Math.max(dayWindow.startMinutes, lunchWindow.startMinutes);
+  const searchEnd = Math.min(dayWindow.endMinutes, lunchWindow.endMinutes);
+  if (searchEnd - searchStart < lunchMinutes) {
+    return Math.max(dayWindow.startMinutes, Math.min(lunchWindow.startMinutes, dayWindow.endMinutes - lunchMinutes));
+  }
+  const free = subtract({ startMinutes: searchStart, endMinutes: searchEnd }, busy);
+  const bigEnough = free.find((g) => g.endMinutes - g.startMinutes >= lunchMinutes);
+  // Nothing in the window is fully free — anchor at the window's start and
+  // let it merge with whatever's busy there, same as fixed mode already
+  // does when a meeting happens to land on the fixed lunch time.
+  return bigEnough ? bigEnough.startMinutes : searchStart;
+}
+
 export function computeDayCapacity(input: DayCapacityInput): DayCapacityResult {
   if (!input.isWorkingDay || input.allDayBusy) {
     return EMPTY_RESULT;
   }
 
+  const lunchEnabled = input.lunchEnabled ?? false;
   const windowStart = input.startMinutes;
-  const windowEnd = windowStart + input.hoursPerDay * 60 + input.lunchMinutes;
+  const windowEnd = windowStart + input.hoursPerDay * 60 + (lunchEnabled ? input.lunchMinutes : 0);
   const window: Interval = { startMinutes: windowStart, endMinutes: windowEnd };
 
   const clippedBusy = input.busyIntervals
@@ -85,13 +119,21 @@ export function computeDayCapacity(input: DayCapacityInput): DayCapacityResult {
   const capacityHours = Math.max(0, input.hoursPerDay - busyMinutes / 60);
   const plannedCapacityHours = capacityHours * (input.planningPercentage / 100);
 
-  const lunchInterval = clip(
-    { startMinutes: input.lunchStartMinutes, endMinutes: input.lunchStartMinutes + input.lunchMinutes },
-    windowStart,
-    windowEnd
-  );
+  let lunchInterval: Interval | null = null;
+  if (lunchEnabled) {
+    const lunchStart =
+      input.lunchMode === "flexible" && input.lunchWindowStart != null && input.lunchWindowEnd != null
+        ? findFlexibleLunchStart(
+            window,
+            input.lunchMinutes,
+            { startMinutes: input.lunchWindowStart, endMinutes: input.lunchWindowEnd },
+            mergedBusy
+          )
+        : input.lunchStartMinutes;
+    lunchInterval = clip({ startMinutes: lunchStart, endMinutes: lunchStart + input.lunchMinutes }, windowStart, windowEnd);
+  }
   const blockedForPlacement = lunchInterval ? [...mergedBusy, lunchInterval] : mergedBusy;
   const freeBlocks = subtract(window, blockedForPlacement);
 
-  return { capacityHours, plannedCapacityHours, freeBlocks };
+  return { capacityHours, plannedCapacityHours, freeBlocks, lunchInterval };
 }

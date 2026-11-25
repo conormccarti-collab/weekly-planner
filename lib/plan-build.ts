@@ -96,7 +96,8 @@ export function buildWeekPlan(
   dayOrder: string[],
   weekCapacityHours: number,
   completedByGid: Map<string, boolean>,
-  avoidSlotByKey?: Map<string, AvoidSlot>
+  avoidSlotByKey?: Map<string, AvoidSlot>,
+  dayExcludedForCandidate?: (candidate: AutoPlaceCandidate, day: string) => boolean
 ): BuildResult {
   const stillUnplaced: BuildResult["stillUnplaced"] = [];
   const eligible: BuildCandidate[] = [];
@@ -118,7 +119,7 @@ export function buildWeekPlan(
   const moveKeys = new Set(overCapacity.toMove.map(keyOf));
   const toPlace = ordered.filter((c) => !moveKeys.has(keyOf(c)));
 
-  const { placements, unplaced } = proposeAutoPlacement(toPlace, freeBlocksByDay, dayOrder, avoidSlotByKey);
+  const { placements, unplaced } = proposeAutoPlacement(toPlace, freeBlocksByDay, dayOrder, avoidSlotByKey, undefined, dayExcludedForCandidate);
 
   const suggestedByKey = new Map(candidates.map((c) => [keyOf(c), c.isSuggested]));
   const finalPlacements = placements.map((p) => ({ ...p, isSuggested: suggestedByKey.get(keyOf(p)) ?? false }));

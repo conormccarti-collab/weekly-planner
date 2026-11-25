@@ -25,6 +25,7 @@ export function SettingsForm({
 }) {
   const [state, formAction, pending] = useActionState(submit, null);
   const [workingDays, setWorkingDays] = useState<Set<string>>(new Set(initial.working_days));
+  const [lunchEnabled, setLunchEnabled] = useState(initial.lunch_enabled);
 
   return (
     // React resets a form's uncontrolled fields to their defaultValue after
@@ -115,6 +116,14 @@ export function SettingsForm({
             className="w-full rounded border border-border bg-slate px-2 py-1 text-sm text-chalk"
           />
         </Field>
+        <Field label="Minimum split part (minutes)">
+          <input
+            type="number"
+            name="min_split_part_minutes"
+            defaultValue={initial.min_split_part_minutes}
+            className="w-full rounded border border-border bg-slate px-2 py-1 text-sm text-chalk"
+          />
+        </Field>
         <Field label="Time zone">
           <input
             type="text"
@@ -139,6 +148,64 @@ export function SettingsForm({
         </Field>
       </section>
       <p className="-mt-4 text-xs text-chalk-dim">Sets the app&apos;s accent colour only — it never changes per-task Brand colours on the calendar.</p>
+
+      <section>
+        <label className="flex items-center gap-2 text-sm text-chalk">
+          <input
+            type="checkbox"
+            name="lunch_enabled"
+            defaultChecked={initial.lunch_enabled}
+            onChange={(e) => setLunchEnabled(e.target.checked)}
+            className="h-4 w-4"
+          />
+          Keep a break free in the daily plan
+        </label>
+        <p className="mt-1 text-xs text-chalk-dim">Off by default. Uses the lunch length above.</p>
+        <div className="mt-2 flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-chalk">
+            <input
+              type="radio"
+              name="lunch_mode"
+              value="fixed"
+              defaultChecked={initial.lunch_mode !== "flexible"}
+              disabled={!lunchEnabled}
+              className="h-4 w-4"
+            />
+            Fixed time (the lunch times above)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-chalk">
+            <input
+              type="radio"
+              name="lunch_mode"
+              value="flexible"
+              defaultChecked={initial.lunch_mode === "flexible"}
+              disabled={!lunchEnabled}
+              className="h-4 w-4"
+            />
+            Flexible — floats within a window, dodging meetings
+          </label>
+        </div>
+        <div className="mt-2 flex items-center gap-3">
+          <Field label="Window start">
+            <input
+              type="time"
+              name="lunch_window_start"
+              defaultValue={initial.lunch_window_start}
+              disabled={!lunchEnabled}
+              className="w-[108px] rounded border border-border bg-slate px-2 py-1 text-sm text-chalk disabled:bg-surface-hover"
+            />
+          </Field>
+          <Field label="Window end">
+            <input
+              type="time"
+              name="lunch_window_end"
+              defaultValue={initial.lunch_window_end}
+              disabled={!lunchEnabled}
+              className="w-[108px] rounded border border-border bg-slate px-2 py-1 text-sm text-chalk disabled:bg-surface-hover"
+            />
+          </Field>
+        </div>
+      </section>
 
       <section>
         <h2 className="text-sm font-semibold text-chalk">Planned projects</h2>

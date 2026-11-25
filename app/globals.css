@@ -5,9 +5,11 @@
 }
 
 /*
- * Dark-mode-by-default palette (v2 changes, section D). Every value here was
- * checked with a WCAG contrast calculator against the surfaces it's meant to
- * sit on before being picked - see the commit message for the numbers.
+ * Light palette built from the real Wilderness brand guide
+ * (wildernessscotland.com/brand-guidelines) rather than a generic Tailwind
+ * scale. Named swatches are quoted in comments so the source is traceable.
+ * Every standalone-text and chip-text pairing below was checked with a WCAG
+ * contrast calculator (script, not eyeballed) - see the commit message.
  *
  * Deliberately NOT `@theme inline` for these: inline bakes the resolved
  * value directly into every generated utility at build time, so a runtime
@@ -17,38 +19,41 @@
  * `var(--color-accent)`, so the cascade can override it per request.
  */
 @theme {
-  --color-raven: #1d1d1d; /* page background */
-  --color-slate: #303634; /* card/panel surfaces */
-  --color-surface-hover: #3f4543; /* hover/pressed bg for buttons & rows - pair only with chalk/on-accent text, never chalk-dim */
-  --color-chalk: #f0ecee; /* primary text, on raven or slate: 14.4:1 / 10.5:1 */
-  --color-chalk-dim: #a8a3a5; /* secondary text, on raven or slate only: 6.8:1 / 5.0:1 */
-  --color-border: #787f7c; /* dividers & outlines, 3:1+ on raven and slate */
+  --color-raven: #f0ecee; /* page background + recessed surfaces - brand "Chalk" */
+  --color-slate: #ffffff; /* card/panel surfaces - brand "White" */
+  --color-surface-hover: #f3e8d2; /* hover/pressed bg for buttons & rows - brand "Shell" */
+  --color-chalk: #1d1d1d; /* primary text, on raven or slate (16.9:1 / 16.9:1) - brand "Raven" */
+  --color-chalk-dim: #626063; /* secondary text, on raven or slate only (5.9:1 / 6.2:1) - brand "Crag" */
+  --color-border: #828276; /* dividers & outlines (3.7:1 / 3.9:1 on raven/slate) - brand "Dove" */
 
-  /* App accent - default is neutral; the Settings Office picker will override this. */
-  --color-accent: #f0ecee;
-  --color-on-accent: #1d1d1d;
+  /* App accent - default is Wilderness Scotland's brand colour; the Settings
+     Office picker overrides this per-office with the same six brand hues. */
+  --color-accent: #8b90c1; /* brand "Thistle" */
+  --color-on-accent: #1d1d1d; /* brand "Raven" - 5.5:1 on Thistle, same pairing officeAccentFor already uses */
 
-  /* Status colors: standalone text on raven/slate (5.4-9:1) */
-  --color-danger: #f2918c;
-  --color-success: #8fcb94;
-  --color-warning: #e3b673;
-  --color-info: #92b4e0;
+  /* Status colors: standalone text on raven/slate, all brand swatches except
+     warning (Ochre #BE9E61 only reads 2.5:1 on white - darkened 33% toward
+     Raven to clear 4.5:1 while staying in the same gold family). */
+  --color-danger: #9e1f37; /* brand "Hawthorn" - 7.8:1 */
+  --color-success: #13592a; /* brand "Yew" - 8.4:1 */
+  --color-warning: #89734b; /* darkened brand "Ochre" - 4.6:1 */
+  --color-info: #2379aa; /* brand "Current" - 4.8:1 */
 
   /* Status callout boxes: tinted bg + solid border + chalk body text (never chalk-dim inside) */
-  --color-danger-tint: #574846;
-  --color-success-tint: #435447;
-  --color-warning-tint: #545041;
-  --color-info-tint: #444f56;
+  --color-danger-tint: #f5e9eb;
+  --color-success-tint: #e7eeea;
+  --color-warning-tint: #f3f1ed;
+  --color-info-tint: #e9f2f7;
 
-  /* Status chip badges: bright bg + raven text (4.3-6:1) */
-  --color-danger-chip: #c27a76;
-  --color-success-chip: #77a67c;
-  --color-warning-chip: #b69663;
-  --color-info-chip: #7a95b5;
+  /* Status chip badges: bright bg + chalk text */
+  --color-danger-chip: #daaab3;
+  --color-success-chip: #a5c0ae;
+  --color-warning-chip: #d2cabb;
+  --color-info-chip: #abccdf;
 }
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 /*

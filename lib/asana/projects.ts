@@ -2,6 +2,7 @@
 export const PIPELINE_PROJECT_GID = "1220595755618852";
 export const PIPELINE_PROJECT_NAME = "Visual Content Pipeline";
 export const PRODUCTION_SHOOTS_PROJECT_GID = "1220595755659253";
+export const PRODUCTION_SHOOTS_PROJECT_NAME = "Production & Shoots";
 export const LONG_FORM_VIDEO_PROJECT_NAME = "Long Form Video";
 
 /**

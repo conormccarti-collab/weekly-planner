@@ -1,8 +1,10 @@
 /**
  * v2 changes, section D: per-task Brand coloring for calendar blocks.
- * Single source of truth for the Brand -> color table. Tint strength (18% of
- * primary mixed into Slate #303634) and the "always use chalk text" rule were
- * picked after checking contrast ratios for every brand - all clear 8.9:1+.
+ * Single source of truth for the Brand -> color table. `edge` is each
+ * brand's actual swatch from the brand guide
+ * (wildernessscotland.com/brand-guidelines); `tint` is that same hue mixed
+ * 10% into white, computed (not eyeballed) so every brand reads consistently
+ * pale - all clear 8.9:1+ with chalk (Raven) text on every tint below.
  */
 export type BrandColors = {
   label: string;
@@ -14,15 +16,15 @@ export type BrandColors = {
 };
 
 const BRAND_TABLE: Record<string, BrandColors> = {
-  scotland: { label: "Scotland", tint: "#353A42", edge: "#8B90C1" },
-  england: { label: "England", tint: "#463135", edge: "#DAA1A6" },
-  ireland: { label: "Ireland", tint: "#2A3D32", edge: "#96AF72" },
-  wpt: { label: "WPT", tint: "#323839", edge: "#BE9E61" },
-  "wilderness group": { label: "Wilderness Group", tint: "#30403D", edge: "#65BBB0" },
-  mvlt: { label: "MVLT", tint: "#2C2C2C", edge: "#FFFFFF" },
+  scotland: { label: "Scotland", tint: "#F3F4F9", edge: "#8B90C1" }, // Thistle
+  england: { label: "England", tint: "#FBF6F6", edge: "#DAA1A6" }, // Rose
+  ireland: { label: "Ireland", tint: "#F5F7F1", edge: "#96AF72" }, // Shamrock
+  wpt: { label: "WPT", tint: "#F9F5EF", edge: "#BE9E61" }, // Ochre
+  "wilderness group": { label: "Wilderness Group", tint: "#F0F8F7", edge: "#65BBB0" }, // Lough
+  mvlt: { label: "MVLT", tint: "#F3F3F1", edge: "#1D1D1D" }, // not a Wilderness brand - kept monochrome (Raven)
 };
 
-const NO_BRAND: BrandColors = { label: "No brand", tint: "#303634", edge: "#787F7C", dashed: true };
+const NO_BRAND: BrandColors = { label: "No brand", tint: "#F0ECEE", edge: "#828276", dashed: true }; // Chalk / Dove
 
 /** Looks up the Brand custom field value (case-insensitive, trimmed), falling back to the no-brand style. */
 export function brandColorsFor(brand: string | null): BrandColors {

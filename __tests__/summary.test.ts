@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekSummaryFacts, templateSummary } from "@/lib/summary";
+import { buildWeekSummaryFacts, formatDailySummaryText, templateSummary } from "@/lib/summary";
 import type { WeekViewData } from "@/lib/week-view-data";
 import type { PlannerTask, Placement } from "@/lib/planner-types";
 import type { Weekday } from "@/lib/time";
@@ -58,6 +58,12 @@ function makeData(overrides: Partial<WeekViewData> = {}): WeekViewData {
         isWorkingDay: true,
         startLabel: "09:00",
         startIsActual: false,
+        lunchLabel: "12:30",
+        lunchIsActual: false,
+        lunchInterval: null,
+        isLocked: false,
+        lockedReason: null,
+        lockSource: null,
         windowStartMinutes: 9 * 60,
         windowEndMinutes: 17 * 60,
         capacityHours: 7,
@@ -73,14 +79,13 @@ function makeData(overrides: Partial<WeekViewData> = {}): WeekViewData {
     todayStr: "2026-11-16",
     weekStart: "2026-11-16",
     followingWeekStart: "2026-11-23",
-    weekStatus: "saved",
     weekCapacityHours: 35,
     weekPlannedHours: 0,
     weekSuggestedHours: 0,
+    weekCompletedHours: 0,
     weekHygieneIssues: [],
     startsThisWeek: [],
     breakdown: [],
-    saveRefs: [],
     shoots: [],
     rejectedKeys: new Set(),
     thisWeekOnlyKeys: new Set(),
@@ -209,6 +214,12 @@ describe("buildWeekSummaryFacts", () => {
             isWorkingDay: false,
             startLabel: "",
             startIsActual: false,
+            lunchLabel: "12:30",
+            lunchIsActual: false,
+        lunchInterval: null,
+            isLocked: false,
+            lockedReason: null,
+            lockSource: null,
             windowStartMinutes: 0,
             windowEndMinutes: 0,
             capacityHours: 0,
@@ -234,6 +245,12 @@ describe("buildWeekSummaryFacts", () => {
             isWorkingDay: true,
             startLabel: "09:00",
             startIsActual: false,
+            lunchLabel: "12:30",
+            lunchIsActual: false,
+        lunchInterval: null,
+            isLocked: false,
+            lockedReason: null,
+            lockSource: null,
             windowStartMinutes: 9 * 60,
             windowEndMinutes: 17 * 60,
             capacityHours: 7,
@@ -247,6 +264,12 @@ describe("buildWeekSummaryFacts", () => {
             isWorkingDay: true,
             startLabel: "09:00",
             startIsActual: false,
+            lunchLabel: "12:30",
+            lunchIsActual: false,
+        lunchInterval: null,
+            isLocked: false,
+            lockedReason: null,
+            lockSource: null,
             windowStartMinutes: 9 * 60,
             windowEndMinutes: 17 * 60,
             capacityHours: 7,
@@ -280,13 +303,13 @@ describe("buildWeekSummaryFacts", () => {
     expect(facts.week.suggestedEstimateTasks).toEqual(["Suggested task"]);
   });
 
-  it("lists this-week tasks that didn't fit, with a reason", () => {
+  it("lists this-week tasks that didn't fit, with their hours and a reason", () => {
     const needsEstimate = makeTask({ name: "No figure", reference: "gid2", placements: [], estimateHours: null });
     const noRoom = makeTask({ name: "No room", reference: "gid3", placements: [], estimateHours: 3 });
     const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [needsEstimate, noRoom] }), MON_TO_FRI, 9 * 60);
     expect(facts.week.notFit).toEqual([
-      { name: "No figure", reason: "needs an estimate" },
-      { name: "No room", reason: "no room left this week" },
+      { name: "No figure", hours: null, reason: "needs an estimate" },
+      { name: "No room", hours: 3, reason: "no room left this week" },
     ]);
   });
 
@@ -350,5 +373,44 @@ describe("templateSummary", () => {
   it("says nothing is scheduled when there is no current or next block", () => {
     const facts = buildWeekSummaryFacts(makeData(), MON_TO_FRI, 9 * 60);
     expect(templateSummary(facts)).toContain("Nothing scheduled right now.");
+  });
+
+  it("'Didn't fit' names the task, its hours and the reason — brief 12f.3", () => {
+    const noRoom = makeTask({ name: "No room", reference: "gid2", placements: [], estimateHours: 3 });
+    const needsEstimate = makeTask({ name: "No figure", reference: "gid3", placements: [], estimateHours: null });
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [noRoom, needsEstimate] }), MON_TO_FRI, 9 * 60);
+    const text = templateSummary(facts);
+    expect(text).toContain("No room, 3h (no room left this week)");
+    // A task with no estimate at all has no hours figure to show.
+    expect(text).toContain("No figure (needs an estimate)");
+  });
+});
+
+describe("formatDailySummaryText", () => {
+  it("never invents a number — every figure comes straight from the facts object, as **bold**/\"- \" markdown", () => {
+    const task = makeTask({ name: "Edit the cut", placements: [makePlacement({ startMinutes: 9 * 60, endMinutes: 11 * 60 })] });
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [task], weekPlannedHours: 40, weekCapacityHours: 35 }), MON_TO_FRI, 10 * 60);
+    const text = formatDailySummaryText(facts);
+    expect(text).toContain("**Now:** Edit the cut (09:00–11:00)");
+    expect(text).toContain("**This week:** 40.0h placed of 35.0h capacity, 5.0h over");
+  });
+
+  it("omits the At risk section entirely when nothing is at risk", () => {
+    const facts = buildWeekSummaryFacts(makeData(), MON_TO_FRI, 9 * 60);
+    expect(formatDailySummaryText(facts)).not.toContain("At risk");
+  });
+
+  it("says nothing is scheduled when there is no current or next block", () => {
+    const facts = buildWeekSummaryFacts(makeData(), MON_TO_FRI, 9 * 60);
+    expect(formatDailySummaryText(facts)).toContain("**Now:** Nothing scheduled right now");
+  });
+
+  it("'Didn't fit' names the task, its hours and the reason as a bullet list", () => {
+    const noRoom = makeTask({ name: "No room", reference: "gid2", placements: [], estimateHours: 3 });
+    const needsEstimate = makeTask({ name: "No figure", reference: "gid3", placements: [], estimateHours: null });
+    const facts = buildWeekSummaryFacts(makeData({ thisWeekTasks: [noRoom, needsEstimate] }), MON_TO_FRI, 9 * 60);
+    const text = formatDailySummaryText(facts);
+    expect(text).toContain("- No room — 3h — no room left this week");
+    expect(text).toContain("- No figure — needs an estimate");
   });
 });

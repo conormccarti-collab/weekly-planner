@@ -217,15 +217,13 @@ Launch step for the user: once these are in the app, remove them from Asana by h
 - Back-scheduling: from the publish date on a deliverable, work out the latest start of each stage and warn when one must start this week.
 - Shoots: a Shoot subtask is matched to the calendar event on its due date and takes no desk hours.
 - Discovery batches planned as one batch task, with light per-episode tasks for review and publish.
-- Slack: forward a message to the app to create a proposed task.
 - Notifications for the morning check and deadline risks.
 - Estimate report: planned against revised hours by task type, for the end-of-Q1 capacity review.
-- Read-only workload view for two colleagues.
-- Write-back to Asana (complete, re-date) with explicit approval for each change.
+- In-app reminders: check off an Asana task for real after marking it done in-app; follow up on a subtask you don't own when its parent task is yours.
 
 ### Not planned
 
-Slack channel monitoring, carrying out tasks from prompts, a decision register, shoot mode, team management features.
+Slack (beyond copying plan text), a colleague workload view, write-back to Asana, carrying out tasks from prompts, a decision register, shoot mode, team management features.
 
 ## 11. Testing
 

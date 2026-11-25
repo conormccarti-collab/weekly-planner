@@ -8,6 +8,7 @@ import { getWeekCapacity } from "@/lib/calendar/week-capacity";
 import { mondayOf, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 import { resolveMorningCheckUpdate, type MorningCheckOutcome } from "@/lib/morning-check";
+import { createCheckoffReminder } from "@/lib/reminders";
 
 export type MorningCheckItem = {
   blockId: string;
@@ -94,9 +95,13 @@ export async function computeMorningCheckFor(supabase: SupabaseClient, userId: s
 
   for (const row of rows) {
     const task = row.source === "asana" ? asanaByGid.get(row.reference) : personalById.get(row.reference);
-    const name = task?.name ?? row.reference;
+    // Its source row is gone (e.g. a personal task deleted outside the
+    // app) — nothing meaningful to check it against, and surfacing the raw
+    // id would be worse than just leaving it out. Same treatment the main
+    // week view already gives a dangling reference.
+    if (!task) continue;
     // Brief section 10: "Tasks completed in Asana close themselves."
-    if (task?.completed) {
+    if (task.completed) {
       autoCloseIds.push(row.id);
       continue;
     }
@@ -104,7 +109,7 @@ export async function computeMorningCheckFor(supabase: SupabaseClient, userId: s
       blockId: row.id,
       source: row.source as "asana" | "personal",
       reference: row.reference,
-      name,
+      name: task.name,
       parentName: row.source === "asana" ? (task as { parent_name: string | null } | undefined)?.parent_name ?? null : null,
       day: row.day as string,
       plannedHours: Number(row.hours ?? 0),
@@ -145,6 +150,10 @@ export async function submitMorningCheck(checkedDays: string[], outcomes: Mornin
       })
       .eq("id", o.blockId)
       .eq("user_id", user.id);
+
+    if (o.outcome === "done") {
+      await createCheckoffReminder(supabase, user.id, o.source, o.reference);
+    }
 
     if (update.remainingHours != null) {
       await supabase.from("task_meta").upsert({

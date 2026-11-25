@@ -1,9 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { loadSettings } from "@/lib/settings-data";
+import {
+  PIPELINE_PROJECT_GID,
+  PIPELINE_PROJECT_NAME,
+  PRODUCTION_SHOOTS_PROJECT_GID,
+  PRODUCTION_SHOOTS_PROJECT_NAME,
+} from "@/lib/asana/projects";
 import { loadAllEstimateDefaults } from "@/lib/estimates-data";
 import { SettingsForm } from "./settings-form";
 import { EstimateDefaultsForm } from "./estimate-defaults-form";
+import { SchedulingRulesForm } from "./scheduling-rules-form";
+import { listSchedulingRules } from "./rules-actions";
 import { ReconnectCalendarButton } from "@/components/reconnect-calendar-button";
 
 export default async function SettingsPage() {
@@ -13,12 +21,24 @@ export default async function SettingsPage() {
 
   const initial = user ? await loadSettings(supabase, user.id) : DEFAULT_SETTINGS;
   const estimateDefaults = await loadAllEstimateDefaults(supabase);
+  const schedulingRules = user ? await listSchedulingRules() : [];
 
   // v5 Stage 12d.1: "A setting 'Planned projects' lists the included
   // projects" — every project ever seen by a sync, so the user can opt
   // additional ones in (or the two defaults out) without typing a gid.
   const { data: projectRows } = await supabase.from("asana_projects").select("gid, name").order("name");
-  const knownProjects = projectRows ?? [];
+  // The two hardcoded default projects (lib/asana/projects.ts) are only ever
+  // synced into asana_projects as a side effect of a task existing in them —
+  // a project with zero current tasks (e.g. Production & Shoots between
+  // shoots) would otherwise have no checkbox at all, even though it's one of
+  // the defaults the app always treats as planned.
+  const knownProjectsByGid = new Map((projectRows ?? []).map((p) => [p.gid, p]));
+  knownProjectsByGid.set(PIPELINE_PROJECT_GID, { gid: PIPELINE_PROJECT_GID, name: PIPELINE_PROJECT_NAME });
+  knownProjectsByGid.set(PRODUCTION_SHOOTS_PROJECT_GID, {
+    gid: PRODUCTION_SHOOTS_PROJECT_GID,
+    name: PRODUCTION_SHOOTS_PROJECT_NAME,
+  });
+  const knownProjects = [...knownProjectsByGid.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   let calendarNeedsReconnect = false;
   let recentSyncFailures = 0;
@@ -83,6 +103,8 @@ export default async function SettingsPage() {
       <div className="mt-6">
         <SettingsForm initial={initial} knownProjects={knownProjects} />
       </div>
+
+      <SchedulingRulesForm initial={schedulingRules} />
 
       <EstimateDefaultsForm initial={estimateDefaults} />
     </div>

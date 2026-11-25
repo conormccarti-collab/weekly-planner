@@ -17,9 +17,12 @@ export function Nav() {
   const pathname = usePathname();
 
   return (
-    <header className="flex items-center justify-between border-b border-border px-6 py-3">
-      <nav className="flex items-center gap-5">
-        <span className="pr-2 text-sm font-semibold text-chalk">Weekly Planner</span>
+    <header className="sticky top-0 z-40 flex items-center justify-between border-b border-border bg-slate/95 px-6 py-3 shadow-sm backdrop-blur">
+      <nav className="flex items-center gap-1">
+        <span className="mr-3 flex items-center gap-2 pr-2 text-sm font-bold tracking-tight text-chalk">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-xs font-bold text-on-accent shadow-sm">WP</span>
+          Weekly Planner
+        </span>
         {LINKS.map((link) => {
           const active = pathname === link.href;
           return (
@@ -28,8 +31,8 @@ export function Nav() {
               href={link.href}
               className={
                 active
-                  ? "text-sm font-medium text-accent"
-                  : "text-sm text-chalk-dim hover:text-chalk"
+                  ? "rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-on-accent shadow-sm"
+                  : "rounded-lg px-3 py-1.5 text-sm text-chalk-dim hover:bg-surface-hover hover:text-chalk"
               }
             >
               {link.label}

@@ -2,16 +2,18 @@ import { createClient } from "@/lib/supabase/server";
 import { SyncBar } from "@/components/sync-bar";
 import { Dashboard } from "@/components/dashboard";
 import { MorningCheckPanel } from "@/components/morning-check-panel";
-import { PlanBoard } from "@/components/plan-board";
+import { WeekList } from "@/components/week/week-list";
+import { BottomChatBar } from "@/components/week/bottom-chat-bar";
 import { EverythingElseList } from "@/components/everything-else-list";
 import { loadWeekViewData } from "@/lib/week-view-data";
-import { computeWeekChanges } from "@/app/(app)/plan/changes-actions";
 import { computeMorningCheck } from "@/app/(app)/morning-check/actions";
-import { WeekChangesBanner } from "@/components/week-changes-banner";
-import { WeekSummary } from "@/components/week-summary";
-import { WeekChatPanel } from "@/components/week-chat-panel";
+import { buildWeekSummaryFacts, formatDailySummaryText } from "@/lib/summary";
+import { SameDayCheckList } from "@/components/same-day-check";
+import { SummaryAutoRefresh } from "@/components/summary-auto-refresh";
 import { StartsThisWeekList } from "@/components/starts-this-week";
+import { RemindersList } from "@/components/reminders-list";
 import { loadChatHistory } from "@/app/(app)/chat/actions";
+import { loadReminders } from "@/lib/reminders";
 import { utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 
@@ -30,23 +32,26 @@ export default async function WeekPage() {
   const nowLocal = utcInstantToLocal(new Date(), env.appTimezone());
 
   const data = await loadWeekViewData(supabase, user);
-  // v3 (plan-first), brief 3.4: once accepted, changes surface as a banner
-  // instead of silently rebuilding — only computed for an accepted week.
-  const weekChanges = data.weekStatus === "saved" ? await computeWeekChanges(data.weekStart) : null;
   // v3 (plan-first) stage 6, brief 9.3: the morning check runs on every
   // open instead of behind a button — same pattern as refreshDraftWeek.
   const morningCheck = await computeMorningCheck();
-  const chatHistory = await loadChatHistory();
+  const reminders = await loadReminders(supabase, user.id, { todayStr: data.todayStr, workingDays: data.workingDays });
+
+  // The old WeekSummary card's facts, now shown as the first chat message of
+  // the day instead of a standalone box, per the user's preference — same
+  // source of truth (lib/summary.ts), just a different presentation.
+  const facts = buildWeekSummaryFacts(data, data.workingDays, nowLocal.minutesFromMidnight);
+  const chatHistory = await loadChatHistory(formatDailySummaryText(facts));
 
   return (
-    <div>
+    <div className="pb-64">
       <h1 className="text-lg font-semibold">Week</h1>
       <div className="mt-6">
         <SyncBar asana={data.asanaStatus} calendar={data.calendarStatus} />
-        {weekChanges && <WeekChangesBanner initial={weekChanges} />}
-        <WeekSummary data={data} nowMinutes={nowLocal.minutesFromMidnight} />
-        <WeekChatPanel initialHistory={chatHistory} />
+        <SummaryAutoRefresh />
+        {facts.endedNotDone.length > 0 && <SameDayCheckList blocks={facts.endedNotDone} />}
         <StartsThisWeekList items={data.startsThisWeek} />
+        <RemindersList data={reminders} />
         <Dashboard
           weekCapacityHours={data.weekCapacityHours}
           weekPlannedHours={data.weekPlannedHours}
@@ -54,18 +59,23 @@ export default async function WeekPage() {
           breakdown={data.breakdown}
         />
         <MorningCheckPanel initial={morningCheck} />
-        <PlanBoard
+        <WeekList
           weekStart={data.weekStart}
-          weekStatus={data.weekStatus}
+          followingWeekStart={data.followingWeekStart}
           todayStr={data.todayStr}
           days={data.capacityDays}
           followingDays={data.followingCapacityDays}
           thisWeekTasks={data.thisWeekTasks}
           shoots={data.shoots}
           rejectedKeys={data.rejectedKeys}
+          weekCapacityHours={data.weekCapacityHours}
+          weekPlannedHours={data.weekPlannedHours}
+          weekCompletedHours={data.weekCompletedHours}
+          checkoffs={reminders.checkoffs}
         />
         <EverythingElseList weekStart={data.weekStart} groups={data.everythingElseGroups} parkedGids={data.parkedKeys} />
       </div>
+      <BottomChatBar initialHistory={chatHistory} />
     </div>
   );
 }

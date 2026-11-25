@@ -9,7 +9,7 @@ import { loadSettings } from "@/lib/settings-data";
 import { ensureDayStartRecorded, getWeekCapacity, type DayCapacityView } from "@/lib/calendar/week-capacity";
 import { ensureWeekInitialized, loadWeekPlan, type PlacedItem } from "@/lib/plan-data";
 import { computeStageBreakdown, isDueThisWeekOrOverdue, type StageBreakdownRow } from "@/lib/plan";
-import { computeFinalBlockIds } from "@/lib/blocks";
+import { computeFinalBlockIds, labelPartsByTask } from "@/lib/blocks";
 import { toPlannerTask, toPersonalPlannerTask, type PersonalTaskRow } from "@/lib/planner-view";
 import { expandShootDateSpan, matchShootToCalendarEvent, type CalendarEventForMatch, type ShootMarker } from "@/lib/asana/shoots";
 import type { EverythingElseGroup, Placement, PlannerTask } from "@/lib/planner-types";
@@ -34,14 +34,14 @@ export type WeekViewData = {
   todayStr: string;
   weekStart: string;
   followingWeekStart: string;
-  weekStatus: "draft" | "saved";
   weekCapacityHours: number;
   /** Excludes suggested-status hours — brief 5.1: "excluded from the counted week total, from 'planned' hours." */
   weekPlannedHours: number;
   /** v4 Stage 2, brief 5.1: hours placed with a model-suggested (unconfirmed) estimate, shown as "plus X suggested" alongside weekPlannedHours rather than folded into it. */
   weekSuggestedHours: number;
+  /** Week-list rebuild, stats strip: hours where a placement's status is "done" this week, using actual hours when recorded. */
+  weekCompletedHours: number;
   breakdown: StageBreakdownRow[];
-  saveRefs: { source: "asana" | "personal"; reference: string; must: boolean }[];
   shoots: ShootMarker[];
   /** v5 Stage 12e.1: tasks rejected from a slot this week — shown in Unplaced so a reject isn't silently indistinguishable from "no room". */
   rejectedKeys: Set<string>;
@@ -128,12 +128,16 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   );
 
   // v5 Stage 12e.1: "keeps the task in the Unplaced list with its reason."
-  // Best-effort — migration 0024 may not be applied yet.
+  // Best-effort — migration 0024 may not be applied yet. Scoped to both
+  // weeks shown (not just `weekStart`) — a block can be rejected from
+  // either the this-week or the following-week grid, and the Unplaced list
+  // below spans both, so a rejection scoped to only the first week silently
+  // never matched a task unplaced from the second.
   const { data: rejectionRows } = await supabase
     .from("plan_events")
     .select("source, reference")
     .eq("user_id", user.id)
-    .eq("week_start", weekStart)
+    .in("week_start", [weekStart, followingWeekStart])
     .eq("event_type", "rejected");
   const rejectedKeys = new Set((rejectionRows ?? []).map((r) => `${r.source}:${r.reference}`));
 
@@ -242,8 +246,6 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   }
   startsThisWeek.sort((a, b) => a.latestStartDate.localeCompare(b.latestStartDate));
 
-  const weekStatus = plan.status;
-
   const allPlaced: PlacedItem[] = [...plan.placed, ...followingPlan.placed];
   const finalBlockIds = computeFinalBlockIds(allPlaced);
 
@@ -264,6 +266,16 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     });
     placementsByKey.set(key, list);
   }
+  for (const list of placementsByKey.values()) {
+    const labels = labelPartsByTask(list);
+    for (const placement of list) {
+      const label = labels.get(placement.id);
+      if (label) {
+        placement.partIndex = label.partIndex;
+        placement.partCount = label.partCount;
+      }
+    }
+  }
   const mustByKey = new Map<string, boolean>();
   for (const item of [...plan.placed, ...plan.unplaced, ...followingPlan.placed, ...followingPlan.unplaced]) {
     mustByKey.set(`${item.source}:${item.reference}`, item.must);
@@ -274,8 +286,9 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     ...followingPlan.unplaced.map((u) => `${u.source}:${u.reference}`),
   ]);
 
-  // Brief section 8: due this week or overdue — only auto-included while
-  // the week is still a draft, so a saved plan reloads exactly.
+  // Brief section 8: due this week or overdue, always auto-included — the
+  // schedule is always live (week-list rebuild: there's no more
+  // accept/saved step to freeze a week's membership against).
   // `thisWeekOnlyKeys` tracks commitments genuinely tied to *this* week —
   // it deliberately excludes a task that's only present because it's
   // unplaced in the *following* week (e.g. just moved there by the
@@ -286,22 +299,20 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     ...plan.unplaced.map((u) => `${u.source}:${u.reference}`),
   ]);
   const thisWeekKeys = new Set<string>(planKeys);
-  if (plan.status === "draft") {
-    for (const [gid, task] of taskByRef) {
-      const key = `asana:${gid}`;
-      if (task.is_container || !task.is_plannable || parkedKeys.has(key) || plan.movedAwayRefs.has(key)) continue;
-      if (isDueThisWeekOrOverdue(task.due_on, plan.weekEndExclusive)) {
-        thisWeekKeys.add(key);
-        thisWeekOnlyKeys.add(key);
-      }
+  for (const [gid, task] of taskByRef) {
+    const key = `asana:${gid}`;
+    if (task.is_container || !task.is_plannable || parkedKeys.has(key) || plan.movedAwayRefs.has(key)) continue;
+    if (isDueThisWeekOrOverdue(task.due_on, plan.weekEndExclusive)) {
+      thisWeekKeys.add(key);
+      thisWeekOnlyKeys.add(key);
     }
-    for (const task of personalTasks) {
-      const key = `personal:${task.id}`;
-      if (parkedKeys.has(key) || plan.movedAwayRefs.has(key)) continue;
-      if (isDueThisWeekOrOverdue(task.due_on, plan.weekEndExclusive)) {
-        thisWeekKeys.add(key);
-        thisWeekOnlyKeys.add(key);
-      }
+  }
+  for (const task of personalTasks) {
+    const key = `personal:${task.id}`;
+    if (parkedKeys.has(key) || plan.movedAwayRefs.has(key)) continue;
+    if (isDueThisWeekOrOverdue(task.due_on, plan.weekEndExclusive)) {
+      thisWeekKeys.add(key);
+      thisWeekOnlyKeys.add(key);
     }
   }
   for (const key of [...thisWeekKeys]) {
@@ -447,6 +458,11 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     (sum, t) => sum + t.placements.reduce((s, p) => s + (p.status === "suggested" ? p.hours : 0), 0),
     0
   );
+  // Week-list rebuild: the stats strip's "Completed" figure.
+  const weekCompletedHours = thisWeekOnlyTasks.reduce(
+    (sum, t) => sum + t.placements.reduce((s, p) => s + (p.status === "done" ? (p.actualHours ?? p.hours) : 0), 0),
+    0
+  );
   const breakdown = computeStageBreakdown(thisWeekOnlyTasks);
 
   // v3 (plan-first) stage 4, summary section 5: "the three highest-ranked
@@ -455,48 +471,60 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   // the task/stage maps), no new queries.
   // v5 Stage 12f.3: "Every subtask shows its parent" — applies to the
   // summary's next-week lists too, not just the calendar blocks.
-  function nameFor(source: "asana" | "personal", reference: string): string {
-    if (source === "personal") return personalByRef.get(reference)?.name ?? reference;
+  // Returns null when the reference's source row is gone (e.g. a personal
+  // task deleted outside the app) — a dangling reference is excluded by its
+  // callers below, never shown to the user as a raw id (the same treatment
+  // app/(app)/morning-check/actions.ts gives the same situation).
+  function nameFor(source: "asana" | "personal", reference: string): string | null {
+    if (source === "personal") return personalByRef.get(reference)?.name ?? null;
     const task = taskByRef.get(reference);
-    if (!task) return reference;
+    if (!task) return null;
     return task.parent_name ? `${task.parent_name} — ${task.name}` : task.name;
   }
-  const followingWeekUnplaced = followingPlan.unplaced.map((u) => ({ source: u.source, reference: u.reference, name: nameFor(u.source, u.reference) }));
+  const followingWeekUnplaced = followingPlan.unplaced
+    .map((u) => ({ source: u.source, reference: u.reference, name: nameFor(u.source, u.reference) }))
+    .filter((u): u is { source: "asana" | "personal"; reference: string; name: string } => u.name != null);
   const followingWeekPlannedHours = followingPlan.placed.reduce((sum, p) => sum + p.hours, 0);
   const followingWeekCapacityHours = followingWeekCapacity.reduce((sum, d) => sum + d.plannedCapacityHours, 0);
 
-  const followingWeekCandidates: (AutoPlaceCandidate & { name: string })[] = followingPlan.placed.map((p) => {
+  const followingWeekCandidates: (AutoPlaceCandidate & { name: string })[] = followingPlan.placed.flatMap((p): (AutoPlaceCandidate & { name: string })[] => {
+    const name = nameFor(p.source, p.reference);
+    if (name == null) return [];
     if (p.source === "asana") {
       const task = taskByRef.get(p.reference);
       const stageInfo = stageInfoByRef.get(p.reference);
-      return {
-        source: "asana",
-        reference: p.reference,
-        rootRef: rootRefByGid.get(p.reference) ?? p.reference,
-        stageOrder: stageInfo?.stage ? Math.max(0, STAGES.indexOf(stageInfo.stage as (typeof STAGES)[number])) : 0,
-        must: p.must,
-        hasHardDeadline: (rootDueOnByGid.get(p.reference) ?? null) != null || p.must,
-        dueOn: task?.due_on ?? null,
-        priority: resolvePriority(task?.custom_fields["Priority"] ?? null, priorityOverrideByRef.get(p.reference) ?? null),
-        focusType: (stageInfo?.focusType as AutoPlaceCandidate["focusType"]) ?? "shallow",
-        estimateHours: p.hours,
-        name: nameFor("asana", p.reference),
-      };
+      return [
+        {
+          source: "asana",
+          reference: p.reference,
+          rootRef: rootRefByGid.get(p.reference) ?? p.reference,
+          stageOrder: stageInfo?.stage ? Math.max(0, STAGES.indexOf(stageInfo.stage as (typeof STAGES)[number])) : 0,
+          must: p.must,
+          hasHardDeadline: (rootDueOnByGid.get(p.reference) ?? null) != null || p.must,
+          dueOn: task?.due_on ?? null,
+          priority: resolvePriority(task?.custom_fields["Priority"] ?? null, priorityOverrideByRef.get(p.reference) ?? null),
+          focusType: (stageInfo?.focusType as AutoPlaceCandidate["focusType"]) ?? "shallow",
+          estimateHours: p.hours,
+          name,
+        },
+      ];
     }
     const personalTask = personalByRef.get(p.reference);
-    return {
-      source: "personal",
-      reference: p.reference,
-      rootRef: p.reference,
-      stageOrder: 0,
-      must: p.must,
-      hasHardDeadline: p.must,
-      dueOn: personalTask?.due_on ?? null,
-      priority: personalTask?.priority ?? null,
-      focusType: "shallow",
-      estimateHours: p.hours,
-      name: nameFor("personal", p.reference),
-    };
+    return [
+      {
+        source: "personal",
+        reference: p.reference,
+        rootRef: p.reference,
+        stageOrder: 0,
+        must: p.must,
+        hasHardDeadline: p.must,
+        dueOn: personalTask?.due_on ?? null,
+        priority: personalTask?.priority ?? null,
+        focusType: "shallow",
+        estimateHours: p.hours,
+        name,
+      },
+    ];
   });
   // Dedupe by key first (a split task can have more than one placed row).
   const seenFollowingKeys = new Set<string>();
@@ -528,12 +556,11 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     todayStr,
     weekStart,
     followingWeekStart,
-    weekStatus,
     weekCapacityHours,
     weekPlannedHours,
     weekSuggestedHours,
+    weekCompletedHours,
     breakdown,
-    saveRefs: thisWeekTasks.map((t) => ({ source: t.source, reference: t.reference, must: t.must })),
     shoots,
     rejectedKeys,
     thisWeekOnlyKeys,

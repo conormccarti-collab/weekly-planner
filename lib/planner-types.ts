@@ -35,6 +35,9 @@ export type Placement = {
   status: string;
   isFinal: boolean;
   pinned: boolean;
+  /** v5 Stage 12g §B: set only when this task has more than one placed block this week — "Part 2 of 5". */
+  partIndex?: number;
+  partCount?: number;
 };
 
 export type EverythingElseGroup = {

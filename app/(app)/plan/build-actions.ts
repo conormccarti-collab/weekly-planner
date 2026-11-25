@@ -14,11 +14,12 @@ async function requireUser(supabase: SupabaseClient): Promise<User> {
 }
 
 /**
- * v3 (plan-first), brief sections 3.1/4.1: builds or refreshes a draft
- * week's plan. Pinned, Done/Behind, and past-dated rows are protected (brief
- * 3.5); everything else is recomputed from scratch. A `saved` (accepted)
- * week is left untouched here — that's the "Things have changed" banner's
- * job instead (stage 2).
+ * v3 (plan-first), brief sections 3.1/4.1: builds or refreshes a week's
+ * plan. Pinned, Done/Behind, and past-dated rows are protected (brief 3.5);
+ * everything else is recomputed from scratch. (Week-list rebuild: there is
+ * no more "accepted/saved" status to leave untouched — the schedule is
+ * always live, and row-level protection is what already keeps manual work
+ * safe, same as it always has for a draft week.)
  *
  * v5 Stage 12c: this is deliberately **not** called from the Week page's
  * render path any more — "the page load must be read-only." It's called
@@ -50,8 +51,6 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
     const { error } = await supabase.from("weeks").insert({ user_id: userId, week_start: weekStart, status: "draft" });
     // A concurrent call may have created this same week row first — that's fine, carry on as draft either way.
     if (error && error.code !== "23505") throw new Error(`Failed to create draft week: ${error.message}`);
-  } else if (weekRow.status === "saved") {
-    return;
   }
 
   const inputs = await gatherWeekBuildInputs(supabase, userId, weekStart);
@@ -66,7 +65,8 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
     inputs.dayOrder,
     inputs.weekCapacityHours,
     inputs.completedByGid,
-    inputs.avoidSlotByKey
+    inputs.avoidSlotByKey,
+    inputs.dayExcludedForCandidate
   );
 
   const rowsToInsert: Record<string, unknown>[] = [];

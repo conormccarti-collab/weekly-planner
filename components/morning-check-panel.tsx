@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { submitMorningCheck, type MorningCheckData, type MorningCheckSubmission } from "@/app/(app)/morning-check/actions";
 import type { MorningCheckOutcome } from "@/lib/morning-check";
-import { WriteBackCompleteReview, type CompleteProposal } from "@/components/write-back-review";
 
 type DraftItem = MorningCheckData["items"][number] & { outcome: MorningCheckOutcome; hoursLeft: string };
 
@@ -22,7 +21,6 @@ export function MorningCheckPanel({ initial }: { initial: MorningCheckData }) {
   );
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [completeProposals, setCompleteProposals] = useState<CompleteProposal[]>([]);
   const [pending, startTransition] = useTransition();
 
   function submit() {
@@ -35,10 +33,6 @@ export function MorningCheckPanel({ initial }: { initial: MorningCheckData }) {
       plannedHours: d.plannedHours,
       hoursLeft: d.hoursLeft === "" ? null : Number(d.hoursLeft),
     }));
-    // Brief section 13 (Stage 10): "the morning check proposes completing
-    // a task the user marked done in the app" — queued for a one-at-a-time
-    // review after the batch submit itself, never written silently.
-    const newlyDoneAsanaTasks = drafts.filter((d) => d.outcome === "done" && d.source === "asana").map((d) => ({ gid: d.reference, name: d.name }));
     startTransition(async () => {
       try {
         await submitMorningCheck(data.checkedDays, outcomes);
@@ -47,7 +41,6 @@ export function MorningCheckPanel({ initial }: { initial: MorningCheckData }) {
             data.autoClosedCount > 0 ? ` (${data.autoClosedCount} closed automatically from Asana)` : ""
           }.`
         );
-        setCompleteProposals(newlyDoneAsanaTasks);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
       }
@@ -57,18 +50,17 @@ export function MorningCheckPanel({ initial }: { initial: MorningCheckData }) {
   }
 
   if (!data || !drafts) {
-    return message || error || completeProposals.length > 0 ? (
+    return message || error ? (
       <div className="mb-4">
         {message && <p className="text-xs text-success">{message}</p>}
         {error && <p className="text-xs text-danger">{error}</p>}
-        <WriteBackCompleteReview proposals={completeProposals} />
       </div>
     ) : null;
   }
 
   return (
     <div className="mb-4">
-      <div className="rounded border border-info bg-info-tint p-3 text-sm text-chalk">
+      <div className="rounded-2xl border border-info bg-info-tint p-3 text-sm text-chalk shadow-sm">
           {data.autoClosedCount > 0 && (
             <p className="mb-2 text-xs text-chalk">
               {data.autoClosedCount} task{data.autoClosedCount === 1 ? "" : "s"} already completed in Asana — closed automatically.

@@ -27,6 +27,14 @@ export type DayCapacityView = {
   isWorkingDay: boolean;
   startLabel: string;
   startIsActual: boolean;
+  lunchLabel: string;
+  lunchIsActual: boolean;
+  /** The actual reserved lunch slot, for display as a row in the day's timeline — null when lunch is off (settings.lunch_enabled) or the day has no working window. */
+  lunchInterval: FreeBlock | null;
+  isLocked: boolean;
+  lockedReason: string | null;
+  /** "manual" = set via the day-card's Lock day button; "calendar" = an all-day busy event (incl. a real Google Out of Office entry) already blocks the day — nothing to toggle, the Lock control just shows a label. */
+  lockSource: "manual" | "calendar" | null;
   windowStartMinutes: number;
   windowEndMinutes: number;
   capacityHours: number;
@@ -98,7 +106,7 @@ export async function getWeekCapacity(
   const weekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateStr(resolvedWeekStart, i));
   const weekEndExclusive = addDaysToDateStr(resolvedWeekStart, 7);
 
-  const [dayStartsResult, eventsResult] = await Promise.all([
+  const [dayStartsResult, eventsResult, lunchOverridesResult, dayLocksResult] = await Promise.all([
     useActualStarts
       ? supabase
           .from("day_starts")
@@ -111,27 +119,60 @@ export async function getWeekCapacity(
       .from("calendar_events")
       .select("event_id, title, starts_at, ends_at, all_day, start_date, end_date, busy")
       .eq("user_id", userId),
+    // Migration 0026 may not be applied yet — same best-effort pattern as
+    // settings-data.ts's BREAK_SETTINGS_COLUMNS fetch: a failed query here
+    // (missing table/column) leaves `data` null and is treated as "no
+    // overrides", never thrown.
+    supabase.from("lunch_overrides").select("date, lunch_start_time").eq("user_id", userId).gte("date", resolvedWeekStart).lt("date", weekEndExclusive),
+    supabase.from("day_locks").select("date, reason").eq("user_id", userId).gte("date", resolvedWeekStart).lt("date", weekEndExclusive),
   ]);
 
   const dayStartsByDate = new Map(
     (dayStartsResult.data ?? []).map((row) => [row.date, row as { date: string; start_time: string }])
   );
   const events = (eventsResult.data ?? []) as CalendarEventRow[];
+  const lunchOverridesByDate = new Map(
+    (lunchOverridesResult.data ?? []).map((row) => [row.date as string, row.lunch_start_time as string])
+  );
+  const dayLocksByDate = new Map((dayLocksResult.data ?? []).map((row) => [row.date as string, (row.reason as string | null) ?? null]));
 
   return weekDates.map((dateStr) => {
     const weekday = weekdayOfDateStr(dateStr);
-    const isWorkingDay = settings.working_days.includes(weekday);
+    const manualLockReason = dayLocksByDate.get(dateStr);
+    const isManuallyLocked = dayLocksByDate.has(dateStr);
+    // A manual lock overrides the weekly working-days pattern for this one
+    // date — the single point every downstream consumer (capacity totals,
+    // freeBlocksByDay/dayOrder in plan-build-data.ts, the day-card filter)
+    // already reads, so nothing else needs to know about it directly.
+    // An all-day busy calendar event (below) deliberately does NOT also
+    // flip this — lib/summary.ts's zeroCapacityReasonFor relies on
+    // isWorkingDay staying true there to tell "blocked by a named leave
+    // event" apart from "not a working day at all", and the zero-capacity
+    // result from computeDayCapacity already excludes it from placement
+    // either way.
+    const isWorkingDay = !isManuallyLocked && settings.working_days.includes(weekday);
 
     const dayStartRow = dayStartsByDate.get(dateStr);
     const defaultStartMinutes = parseHHMM(settings.start_times[weekday] ?? "09:00");
     const startMinutes = dayStartRow ? parseHHMM(dayStartRow.start_time) : defaultStartMinutes;
 
-    const lunchStartMinutes = parseHHMM(settings.lunch_times[weekday] ?? "12:30");
+    const lunchOverride = lunchOverridesByDate.get(dateStr);
+    const lunchStartMinutes = parseHHMM(lunchOverride ?? settings.lunch_times[weekday] ?? "12:30");
 
     const allDayEventsToday = events.filter(
       (e) => e.all_day && e.start_date && e.end_date && dateInRange(dateStr, e.start_date, e.end_date)
     );
-    const allDayBusy = allDayEventsToday.some((e) => e.busy);
+    // Covers both a real Google Out of Office entry and a hand-created
+    // all-day event (e.g. "Annual Leave", "Bank Holiday") — sync.ts already
+    // normalises a native OOO event (which Google sends with timed
+    // dateTime fields, not a date-only span) into this same all_day shape,
+    // so this one check already catches both without needing to know which
+    // kind it is.
+    const calendarBlockingEvent = allDayEventsToday.find((e) => e.busy);
+    const allDayBusy = !!calendarBlockingEvent;
+    const isLocked = isManuallyLocked || allDayBusy;
+    const lockSource: DayCapacityView["lockSource"] = isManuallyLocked ? "manual" : allDayBusy ? "calendar" : null;
+    const lockedReason = manualLockReason ?? calendarBlockingEvent?.title ?? null;
 
     const timedEventsToday = events.filter((e) => {
       if (e.all_day || !e.starts_at) return false;
@@ -154,6 +195,10 @@ export async function getWeekCapacity(
       planningPercentage: settings.planning_percentage,
       allDayBusy,
       busyIntervals,
+      lunchEnabled: settings.lunch_enabled,
+      lunchMode: settings.lunch_mode,
+      lunchWindowStart: settings.lunch_window_start ? parseHHMM(settings.lunch_window_start) : undefined,
+      lunchWindowEnd: settings.lunch_window_end ? parseHHMM(settings.lunch_window_end) : undefined,
     });
 
     const dayEvents: DayEventView[] = [...allDayEventsToday, ...timedEventsToday].map((e) => ({
@@ -175,8 +220,14 @@ export async function getWeekCapacity(
       isWorkingDay,
       startLabel: formatHHMM(startMinutes),
       startIsActual: !!dayStartRow,
+      lunchLabel: formatHHMM(lunchStartMinutes),
+      lunchIsActual: lunchOverride != null,
+      lunchInterval: result.lunchInterval,
+      isLocked,
+      lockedReason,
+      lockSource,
       windowStartMinutes: startMinutes,
-      windowEndMinutes: startMinutes + settings.hours_per_day * 60 + settings.lunch_minutes,
+      windowEndMinutes: startMinutes + settings.hours_per_day * 60 + (settings.lunch_enabled ? settings.lunch_minutes : 0),
       capacityHours: result.capacityHours,
       plannedCapacityHours: result.plannedCapacityHours,
       freeBlocks: result.freeBlocks,

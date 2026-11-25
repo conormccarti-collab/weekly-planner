@@ -83,7 +83,8 @@ export type WeekSummaryFacts = {
     /** Positive = hours still free; negative = hours over capacity. */
     freeOrOverHours: number;
     mainAtRisk: string | null;
-    notFit: { name: string; reason: string }[];
+    /** v5 Stage 12f.3: "'Didn't fit' names the task, film, hours and reason." `hours` is null only when the reason itself is the missing estimate. */
+    notFit: { name: string; hours: number | null; reason: string }[];
     suggestedEstimateTasks: string[];
     hygieneIssues: string[];
     /** v5 Stage 12f.4: same as today's, for a week with zero capacity throughout (e.g. a full week of leave). */
@@ -184,7 +185,11 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
 
   const notFit = data.thisWeekTasks
     .filter((t) => t.placements.length === 0)
-    .map((t) => ({ name: displayName(t.name, t.parentName), reason: t.estimateHours == null ? "needs an estimate" : "no room left this week" }));
+    .map((t) => ({
+      name: displayName(t.name, t.parentName),
+      hours: t.estimateHours,
+      reason: t.estimateHours == null ? "needs an estimate" : "no room left this week",
+    }));
   const suggestedEstimateTasks = data.thisWeekTasks
     .filter((t) => t.placements.some((p) => p.status === "suggested"))
     .map((t) => displayName(t.name, t.parentName));
@@ -213,6 +218,80 @@ export function buildWeekSummaryFacts(data: WeekViewData, workingDays: Weekday[]
     },
     monday,
   };
+}
+
+/**
+ * Renders the same facts `WeekSummary` (components/week-summary.tsx) shows
+ * as a static card, as plain text for the chat — presented as the first
+ * message of the day there instead, per the user's preference. Markdown
+ * matches the convention `components/chat-markdown.tsx` renders: a bold
+ * label per line, "- " bullets for a multi-line section. No model call, no
+ * invented numbers — exactly the facts already computed.
+ */
+export function formatDailySummaryText(facts: WeekSummaryFacts): string {
+  const lines: string[] = [];
+
+  if (facts.now) {
+    lines.push(`**Now:** ${facts.now.name} (${formatHHMM(facts.now.startMinutes)}–${formatHHMM(facts.now.endMinutes)})`);
+  } else if (facts.next.length > 0) {
+    lines.push(`**Now:** Nothing right now — next: ${facts.next[0].name} at ${formatHHMM(facts.next[0].startMinutes)}`);
+  } else {
+    lines.push(`**Now:** Nothing scheduled right now`);
+  }
+
+  if (facts.next.length > 0) {
+    lines.push(`**Next:**`);
+    lines.push(...facts.next.map((b) => `- ${b.name} (${formatHHMM(b.startMinutes)}–${formatHHMM(b.endMinutes)})`));
+  }
+
+  lines.push(
+    facts.today.zeroCapacityReason
+      ? `**Today:** ${facts.today.zeroCapacityReason}`
+      : `**Today:** ${facts.today.plannedHours.toFixed(1)}h planned of ${facts.today.capacityHours.toFixed(1)}h, ${facts.today.doneHours.toFixed(1)}h done`
+  );
+
+  if (facts.atRisk.length > 0) {
+    lines.push(`**At risk:**`);
+    lines.push(...facts.atRisk.map((l) => `- ${l}`));
+  }
+
+  const freeOrOver =
+    facts.week.freeOrOverHours >= 0 ? `${facts.week.freeOrOverHours.toFixed(1)}h free` : `${Math.abs(facts.week.freeOrOverHours).toFixed(1)}h over`;
+  lines.push(
+    facts.week.zeroCapacityReason
+      ? `**This week:** ${facts.week.zeroCapacityReason}`
+      : `**This week:** ${facts.week.plannedHours.toFixed(1)}h placed of ${facts.week.capacityHours.toFixed(1)}h capacity, ${freeOrOver}`
+  );
+  if (facts.monday) {
+    lines.push(
+      `${facts.monday.workingHours.toFixed(1)}h of working hours this week` +
+        (facts.monday.leftOut.length > 0 ? ` — left out of next week: ${facts.monday.leftOut.join(", ")}` : "")
+    );
+  }
+
+  if (facts.week.notFit.length > 0) {
+    lines.push(`**Didn't fit:**`);
+    lines.push(...facts.week.notFit.map((n) => `- ${n.name}${n.hours != null ? ` — ${n.hours}h` : ""} — ${n.reason}`));
+  }
+
+  if (facts.week.suggestedEstimateTasks.length > 0) {
+    lines.push(`**Suggested estimates:**`);
+    lines.push(...facts.week.suggestedEstimateTasks.map((n) => `- ${n}`));
+  }
+
+  if (facts.week.hygieneIssues.length > 0) {
+    lines.push(
+      `**Hygiene:** ${facts.week.hygieneIssues.length} issue${facts.week.hygieneIssues.length === 1 ? "" : "s"} — top three: ${facts.week.hygieneIssues.slice(0, 3).join("; ")}`
+    );
+  }
+
+  lines.push(
+    `**Next week:** ${facts.nextWeek.plannedHours.toFixed(1)}h planned of ${facts.nextWeek.capacityHours.toFixed(1)}h capacity` +
+      (facts.nextWeek.topThree.length > 0 ? ` — top: ${facts.nextWeek.topThree.join(", ")}` : "") +
+      (facts.nextWeek.cannotFit.length > 0 ? ` — couldn't fit: ${facts.nextWeek.cannotFit.join(", ")}` : "")
+  );
+
+  return lines.join("\n");
 }
 
 /**
@@ -262,7 +341,7 @@ export function templateSummary(facts: WeekSummaryFacts): string {
     parts.push(`Main thing at risk: ${facts.week.mainAtRisk}.`);
   }
   if (facts.week.notFit.length > 0) {
-    parts.push(`Didn't fit: ${facts.week.notFit.map((n) => `${n.name} (${n.reason})`).join(", ")}.`);
+    parts.push(`Didn't fit: ${facts.week.notFit.map((n) => `${n.name}${n.hours != null ? `, ${n.hours}h` : ""} (${n.reason})`).join(", ")}.`);
   }
   if (facts.week.suggestedEstimateTasks.length > 0) {
     parts.push(`Using a suggested estimate: ${facts.week.suggestedEstimateTasks.join(", ")}.`);

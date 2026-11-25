@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  complementRanges,
   computeFinalBlockIds,
+  diagnoseDrop,
+  findNearestFreeSlot,
   mergeAdjacentBlocks,
   rangeFitsInFreeBlocks,
+  labelPartsByTask,
   snapTo15,
-  splitBlockAt,
   subtractOccupied,
   type BlockRef,
 } from "@/lib/blocks";
@@ -34,35 +37,6 @@ describe("rangeFitsInFreeBlocks", () => {
 
   it("rejects a range outside every free block", () => {
     expect(rangeFitsInFreeBlocks({ startMinutes: 0, endMinutes: 30 }, free)).toBe(false);
-  });
-});
-
-describe("splitBlockAt", () => {
-  const existing = { startMinutes: 540, endMinutes: 660 }; // 09:00-11:00
-
-  it("splits into before/inserted/after when the drop lands in the middle", () => {
-    const result = splitBlockAt(existing, 600, 30); // drop at 10:00, 30min task
-    expect(result.before).toEqual({ startMinutes: 540, endMinutes: 600 });
-    expect(result.inserted).toEqual({ startMinutes: 600, endMinutes: 630 });
-    expect(result.after).toEqual({ startMinutes: 630, endMinutes: 660 });
-  });
-
-  it("caps the inserted duration to the room left in the block", () => {
-    const result = splitBlockAt(existing, 630, 60); // only 30min left after 10:30
-    expect(result.inserted).toEqual({ startMinutes: 630, endMinutes: 660 });
-    expect(result.after).toBeNull();
-  });
-
-  it("has no 'before' when the drop lands exactly at the block's start", () => {
-    const result = splitBlockAt(existing, 540, 15);
-    expect(result.before).toBeNull();
-    expect(result.inserted).toEqual({ startMinutes: 540, endMinutes: 555 });
-    expect(result.after).toEqual({ startMinutes: 555, endMinutes: 660 });
-  });
-
-  it("snaps an off-grid drop point to the nearest quarter hour", () => {
-    const result = splitBlockAt(existing, 598, 15); // 598 -> snaps to 600
-    expect(result.inserted.startMinutes).toBe(600);
   });
 });
 
@@ -155,5 +129,114 @@ describe("computeFinalBlockIds", () => {
       block("2", "2026-11-19", 540, 600, "task-b"),
     ]);
     expect(ids).toEqual(new Set(["1", "2"]));
+  });
+});
+
+describe("labelPartsByTask", () => {
+  it("labels nothing when a task has only one block", () => {
+    const labels = labelPartsByTask([{ id: "1", day: "2026-11-18", startMinutes: 540 }]);
+    expect(labels.size).toBe(0);
+  });
+
+  it("labels multiple blocks in chronological order, day then start time", () => {
+    const labels = labelPartsByTask([
+      { id: "b", day: "2026-11-19", startMinutes: 540 },
+      { id: "a", day: "2026-11-18", startMinutes: 600 },
+      { id: "c", day: "2026-11-19", startMinutes: 480 },
+    ]);
+    expect(labels.get("a")).toEqual({ partIndex: 1, partCount: 3 });
+    expect(labels.get("c")).toEqual({ partIndex: 2, partCount: 3 });
+    expect(labels.get("b")).toEqual({ partIndex: 3, partCount: 3 });
+  });
+});
+
+describe("complementRanges", () => {
+  it("returns the gap before, between and after free blocks", () => {
+    const bands = complementRanges(540, 900, [
+      { startMinutes: 600, endMinutes: 660 },
+      { startMinutes: 780, endMinutes: 840 },
+    ]);
+    expect(bands).toEqual([
+      { startMinutes: 540, endMinutes: 600 },
+      { startMinutes: 660, endMinutes: 780 },
+      { startMinutes: 840, endMinutes: 900 },
+    ]);
+  });
+
+  it("is empty when the whole window is free", () => {
+    expect(complementRanges(540, 900, [{ startMinutes: 540, endMinutes: 900 }])).toEqual([]);
+  });
+
+  it("is the whole window when nothing is free", () => {
+    expect(complementRanges(540, 900, [])).toEqual([{ startMinutes: 540, endMinutes: 900 }]);
+  });
+});
+
+describe("findNearestFreeSlot", () => {
+  it("snaps to 15 minutes within a free block that already fits", () => {
+    expect(findNearestFreeSlot(548, 60, [{ startMinutes: 540, endMinutes: 720 }])).toBe(555);
+  });
+
+  it("clamps to the start of the nearest free block when the raw position is too early", () => {
+    expect(findNearestFreeSlot(500, 60, [{ startMinutes: 540, endMinutes: 720 }])).toBe(540);
+  });
+
+  it("clamps so the full duration still fits when the raw position is too late in the block", () => {
+    expect(findNearestFreeSlot(700, 60, [{ startMinutes: 540, endMinutes: 720 }])).toBe(660);
+  });
+
+  it("picks whichever of several free blocks is actually closest", () => {
+    const freeBlocks = [
+      { startMinutes: 540, endMinutes: 600 }, // 9:00-10:00, too short for 90min
+      { startMinutes: 660, endMinutes: 840 }, // 11:00-14:00
+    ];
+    expect(findNearestFreeSlot(620, 90, freeBlocks)).toBe(660);
+  });
+
+  it("returns null when nothing can fit the duration", () => {
+    expect(findNearestFreeSlot(600, 120, [{ startMinutes: 540, endMinutes: 600 }])).toBeNull();
+  });
+});
+
+describe("diagnoseDrop", () => {
+  const window = { startMinutes: 540, endMinutes: 1020 }; // 09:00-17:00
+  const oneFreeBlock = [{ startMinutes: 540, endMinutes: 1020 }];
+
+  it("is ok when the range fits cleanly and nothing else is there", () => {
+    expect(diagnoseDrop({ startMinutes: 600, endMinutes: 660 }, window, oneFreeBlock, [])).toEqual({ ok: true });
+  });
+
+  it("names the day having no capacity at all", () => {
+    const result = diagnoseDrop({ startMinutes: 600, endMinutes: 660 }, window, [], []);
+    expect(result).toEqual({ ok: false, reason: "no-capacity", message: "That day has no capacity" });
+  });
+
+  it("names a meeting the range overlaps, with its time", () => {
+    const freeBlocks = [
+      { startMinutes: 540, endMinutes: 660 }, // free until 11:00
+      { startMinutes: 720, endMinutes: 1020 }, // free again from 12:00 (11:00-12:00 is a meeting)
+    ];
+    const result = diagnoseDrop({ startMinutes: 630, endMinutes: 690 }, window, freeBlocks, []);
+    expect(result).toEqual({ ok: false, reason: "meeting", message: "Overlaps a meeting at 11:00–12:00" });
+  });
+
+  it("names a conflicting task block, not a meeting, when the overlap is with another placement", () => {
+    const otherBlocks = [{ id: "other-1", name: "Edit the Arran video", startMinutes: 600, endMinutes: 660 }];
+    const result = diagnoseDrop({ startMinutes: 630, endMinutes: 690 }, window, oneFreeBlock, otherBlocks);
+    expect(result).toEqual({
+      ok: false,
+      reason: "block",
+      message: "Overlaps Edit the Arran video at 10:00–11:00",
+      conflictingBlockId: "other-1",
+      conflictingName: "Edit the Arran video",
+    });
+  });
+
+  it("checks for a conflicting block before checking free blocks at all", () => {
+    // Free calendar-wise, but another task is already sitting there.
+    const otherBlocks = [{ id: "other-1", name: "Review cut", startMinutes: 600, endMinutes: 660 }];
+    const result = diagnoseDrop({ startMinutes: 600, endMinutes: 660 }, window, oneFreeBlock, otherBlocks);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason).toBe("block");
   });
 });

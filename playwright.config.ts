@@ -10,6 +10,14 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./__tests__/e2e",
   fullyParallel: false,
+  // `fullyParallel: false` only serializes tests *within* one file — by
+  // default Playwright still runs separate spec *files* concurrently, one
+  // per worker. Every test here shares one real Supabase project (no DB
+  // per worker, no transaction rollback), so two files running at once is a
+  // real race against the same rows, not a theoretical one — this surfaced
+  // directly as spurious "touched real data" failures and real cross-file
+  // interference once a 5th spec file pushed the default worker count above 1.
+  workers: 1,
   retries: 0,
   reporter: "list",
   use: {

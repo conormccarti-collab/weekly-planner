@@ -11,6 +11,8 @@ const BASE: DayCapacityInput = {
   planningPercentage: 100,
   allDayBusy: false,
   busyIntervals: [],
+  lunchEnabled: true,
+  lunchMode: "fixed",
 };
 
 function at(hhmm: string) {
@@ -110,5 +112,55 @@ describe("computeDayCapacity", () => {
       busyIntervals: [{ startMinutes: at("18:00"), endMinutes: at("19:00") }],
     });
     expect(result.capacityHours).toBe(7);
+  });
+});
+
+describe("computeDayCapacity — break (v5 Stage 12g §C)", () => {
+  it("reserves no break at all when lunchEnabled is false (and lunchEnabled is omitted)", () => {
+    const result = computeDayCapacity({ ...BASE, lunchEnabled: false });
+    expect(result.freeBlocks).toEqual([{ startMinutes: at("09:30"), endMinutes: at("16:30") }]); // 7h window, no +60m lunch padding
+    const omitted = computeDayCapacity({ ...BASE, lunchEnabled: undefined });
+    expect(omitted.freeBlocks).toEqual([{ startMinutes: at("09:30"), endMinutes: at("16:30") }]);
+  });
+
+  it("fixed mode is unchanged from before this setting existed", () => {
+    const result = computeDayCapacity({ ...BASE, lunchEnabled: true, lunchMode: "fixed" });
+    expect(result.freeBlocks).toEqual([
+      { startMinutes: at("09:30"), endMinutes: at("12:30") },
+      { startMinutes: at("13:30"), endMinutes: at("17:30") },
+    ]);
+  });
+
+  it("flexible mode dodges a meeting sitting on the fixed lunch time", () => {
+    const result = computeDayCapacity({
+      ...BASE,
+      lunchEnabled: true,
+      lunchMode: "flexible",
+      lunchWindowStart: at("12:00"),
+      lunchWindowEnd: at("14:00"),
+      busyIntervals: [{ startMinutes: at("12:15"), endMinutes: at("13:00") }],
+    });
+    // 12:00-12:15 (15m) is too short; 13:00-14:00 (60m) fits exactly — lunch lands there.
+    expect(result.freeBlocks).toEqual([
+      { startMinutes: at("09:30"), endMinutes: at("12:15") },
+      { startMinutes: at("14:00"), endMinutes: at("17:30") },
+    ]);
+  });
+
+  it("flexible mode falls back to the window start when nothing in it is fully free", () => {
+    const result = computeDayCapacity({
+      ...BASE,
+      lunchEnabled: true,
+      lunchMode: "flexible",
+      lunchWindowStart: at("12:00"),
+      lunchWindowEnd: at("13:00"),
+      busyIntervals: [{ startMinutes: at("12:00"), endMinutes: at("13:00") }],
+    });
+    // Lunch anchors at 12:00 and merges into the already-busy 12:00-13:00 —
+    // same as fixed mode would when a meeting exactly covers the lunch slot.
+    expect(result.freeBlocks).toEqual([
+      { startMinutes: at("09:30"), endMinutes: at("12:00") },
+      { startMinutes: at("13:00"), endMinutes: at("17:30") },
+    ]);
   });
 });

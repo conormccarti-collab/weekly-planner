@@ -15,6 +15,8 @@
  * on its own.
  */
 
+import { packAcrossGaps, type DayGap } from "@/lib/blocks";
+
 export type FocusType = "deep" | "shallow" | "away" | "waiting";
 
 export type AutoPlaceCandidate = {
@@ -44,6 +46,9 @@ export type ProposedPlacement = {
   day: string;
   startMinutes: number;
   endMinutes: number;
+  /** v5 Stage 12g §B: set only when the task didn't fit in one gap and was auto-split across several. */
+  partIndex?: number;
+  partCount?: number;
 };
 
 export type UnplacedCandidate = { source: "asana" | "personal"; reference: string; reason: string };
@@ -117,7 +122,16 @@ export function proposeAutoPlacement(
   freeBlocksByDay: Map<string, FreeBlock[]>,
   dayOrder: string[],
   /** v5 Stage 12e.1: "regeneration does not put it back in the same slot" a user just rejected it from. */
-  avoidSlotByKey?: Map<string, AvoidSlot>
+  avoidSlotByKey?: Map<string, AvoidSlot>,
+  /** v5 Stage 12g §B: "Minimum part size is a setting (default 1h)." */
+  minPartMinutes = 60,
+  /**
+   * Rules window: a structured `avoid_weekday` rule excludes a day for
+   * candidates it matches (stage filter, or every candidate when the rule
+   * has none) — resolved by the caller (lib/plan-build-data.ts) to plain day
+   * strings already in `dayOrder` so this function stays weekday-agnostic.
+   */
+  dayExcludedForCandidate?: (candidate: AutoPlaceCandidate, day: string) => boolean
 ): AutoPlacementResult {
   const blocks: (FreeBlock & { day: string })[] = dayOrder.flatMap((day) =>
     (freeBlocksByDay.get(day) ?? []).map((b) => ({ ...b, day }))
@@ -132,8 +146,9 @@ export function proposeAutoPlacement(
     if (candidate.focusType === "away" || candidate.focusType === "waiting") continue; // fixed 0h, nothing to place
 
     const duration = snapTo15(candidate.estimateHours * 60);
+    const candidateBlocks = dayExcludedForCandidate ? blocks.filter((b) => !dayExcludedForCandidate(candidate, b.day)) : blocks;
 
-    let fitting = blocks.filter((b) => lengthOf(b) >= duration);
+    let fitting = candidateBlocks.filter((b) => lengthOf(b) >= duration);
     if (candidate.focusType === "deep") {
       fitting = fitting.filter((b) => lengthOf(b) >= 60);
       if (shallowRemaining > 0) {
@@ -155,6 +170,42 @@ export function proposeAutoPlacement(
     }
 
     if (fitting.length === 0) {
+      // v5 Stage 12g §B: "A task bigger than the largest free gap... splits
+      // automatically into linked parts across gaps and days." Same deep
+      // work gap floors as the single-block search above (including the
+      // shallow-work reservation), just not the whole-duration requirement.
+      let splitPool = candidateBlocks;
+      if (candidate.focusType === "deep") {
+        splitPool = splitPool.filter((b) => lengthOf(b) >= 60);
+        if (shallowRemaining > 0) {
+          splitPool = splitPool.filter((b) => lengthOf(b) >= DEEP_RESERVE_THRESHOLD_MINUTES);
+        }
+      }
+      const gaps: DayGap[] = splitPool.map((b) => ({ day: b.day, startMinutes: b.startMinutes, endMinutes: b.endMinutes }));
+      const { parts, leftoverMinutes } = packAcrossGaps(duration, gaps, minPartMinutes);
+
+      if (leftoverMinutes === 0 && parts.length > 0) {
+        parts.forEach((part, i) => {
+          placements.push({
+            source: candidate.source,
+            reference: candidate.reference,
+            day: part.day,
+            startMinutes: part.startMinutes,
+            endMinutes: part.endMinutes,
+            ...(parts.length > 1 ? { partIndex: i + 1, partCount: parts.length } : {}),
+          });
+          const block = splitPool.find((b) => b.day === part.day && b.startMinutes === part.startMinutes);
+          if (!block) return;
+          const index = blocks.indexOf(block);
+          if (part.endMinutes < block.endMinutes) {
+            blocks[index] = { ...block, startMinutes: part.endMinutes };
+          } else {
+            blocks.splice(index, 1);
+          }
+        });
+        continue;
+      }
+
       unplaced.push({ source: candidate.source, reference: candidate.reference, reason: "No suitable free block this week" });
       continue;
     }

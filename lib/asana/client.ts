@@ -92,38 +92,3 @@ export async function listProjectTasks(projectGid: string, completedSinceIso: st
   });
 }
 
-/**
- * v4 Stage 10: the only two writes this app may ever make to Asana —
- * marking a task complete, and changing its due date — each one a single
- * hard-coded field, never a caller-supplied field dict. Only ever called
- * from the approval path in `app/(app)/write-back/actions.ts`, never from
- * a sync or read path.
- */
-async function asanaPut(path: string, body: Record<string, unknown>): Promise<AsanaTask> {
-  const pat = process.env.ASANA_PAT;
-  if (!pat) {
-    throw new Error("Missing ASANA_PAT");
-  }
-
-  const response = await fetch(`${ASANA_BASE_URL}${path}`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${pat}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ data: body }),
-  });
-
-  if (!response.ok) {
-    const responseBody = await response.text().catch(() => "");
-    throw new Error(`Asana PUT ${path} failed: ${response.status} ${responseBody}`);
-  }
-
-  const json = await response.json();
-  return json.data as AsanaTask;
-}
-
-export async function completeTaskInAsana(gid: string): Promise<AsanaTask> {
-  return asanaPut(`/tasks/${gid}`, { completed: true });
-}
-
-export async function setTaskDueDateInAsana(gid: string, dueOn: string): Promise<AsanaTask> {
-  return asanaPut(`/tasks/${gid}`, { due_on: dueOn });
-}

@@ -28,6 +28,21 @@ export type Settings = {
   notifications_enabled: boolean;
   /** v5 Stage 12d: project gids eligible to be planned, placed and flagged at all. Defaults to Visual Content Pipeline + Production & Shoots. */
   planned_project_gids: string[];
+  /**
+   * v5 Stage 12g §C: a break (lunch) kept free by the planner. Off by
+   * default — note lunch_minutes/lunch_times above were always applied
+   * unconditionally before this existed (see lib/capacity.ts); this makes
+   * that opt-in. "fixed" keeps today's behaviour (lunch_times, unconditional).
+   * "flexible" floats lunch_minutes somewhere free inside the window below,
+   * dodging meetings, instead of a fixed clock time.
+   */
+  /** Defaults true — lunch was unconditionally applied before this setting existed; this preserves that until the user changes it (see migration 0025). */
+  lunch_enabled: boolean;
+  lunch_mode: "fixed" | "flexible";
+  lunch_window_start: string;
+  lunch_window_end: string;
+  /** v5 Stage 12g §B: "Minimum part size is a setting (default 1h)." */
+  min_split_part_minutes: number;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -42,4 +57,9 @@ export const DEFAULT_SETTINGS: Settings = {
   office: null,
   notifications_enabled: false,
   planned_project_gids: [PIPELINE_PROJECT_GID, PRODUCTION_SHOOTS_PROJECT_GID],
+  lunch_enabled: true,
+  lunch_mode: "fixed",
+  lunch_window_start: "12:00",
+  lunch_window_end: "14:00",
+  min_split_part_minutes: 60,
 };

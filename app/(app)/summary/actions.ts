@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { resolveMorningCheckUpdate, type MorningCheckOutcome } from "@/lib/morning-check";
+import { createCheckoffReminder } from "@/lib/reminders";
 
 /**
  * v3 (plan-first) stage 4, brief 7: the same-day version of the morning
@@ -35,6 +36,10 @@ export async function submitSameDayCheck(
     .eq("id", blockId)
     .eq("user_id", user.id);
   if (error) throw new Error(error.message);
+
+  if (outcome === "done") {
+    await createCheckoffReminder(supabase, user.id, source, reference);
+  }
 
   if (update.remainingHours != null) {
     const { error: metaError } = await supabase.from("task_meta").upsert({

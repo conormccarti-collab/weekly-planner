@@ -1,57 +1,52 @@
 # End-to-end tests (Playwright)
 
-v5 Stage 12b: "Add Playwright. Tests must use real mouse events (down, move,
-up), not synthetic drag events... Nothing in Stage 12 to 21 counts as done
-until its e2e test passes."
+Signed-in session: a saved `storageState` at `__tests__/e2e/.auth/storage-state.json`
+(gitignored), referenced by `playwright.config.ts`. Regenerate it by signing
+in once by hand against a real run of the app and exporting that session.
 
-## Blocked on one decision: how do these tests sign in?
+Every spec here runs against the **dev Supabase project**, never the real
+production one, using disposable fixtures from `fixtures.ts`
+(`createFixtureBlocks`, `createUnplacedFixture`, `createFixtureMeeting`) —
+never real synced data. `assertNoRealDataTouched` is a second, independent
+safety net: it fails the test loudly if anything outside the fixtures a test
+created was touched, which has caught real cross-test and cross-file
+interference more than once (see `playwright.config.ts`'s `workers: 1` and
+the comments throughout `fixtures.ts`).
 
-The app has exactly one sign-in path — Google OAuth via Supabase Auth
-(`app/login`, `app/auth/callback`) — and no test-only bypass. Playwright
-needs a real, reusable session to drive any signed-in page at all, so these
-tests cannot run yet. Three ways to provide one, in order of how much they
-touch the app itself:
+Week-list rebuild: dragging no longer exists anywhere in the app — every
+interaction goes through the Edit button (`EditEntryModal`), the Place…
+button (`PlaceModal`), or chat. Specs drive these as plain clicks and
+`selectOption` calls, which is both simpler and more reliable than the
+pointer-drag simulation the old calendar-grid UI needed.
 
-1. **A saved `storageState` from a real login.** Run the app locally, sign in
-   once by hand in a real browser pointed at it, then export that browser's
-   cookies for this origin into `__tests__/e2e/.auth/storage-state.json`
-   (gitignored). Works today, zero app changes — but it expires whenever the
-   session does, and needs redoing by hand each time, including in CI
-   (the file would need to live in CI as a secret, not in the repo).
-2. **A short-lived CI sign-in token**, e.g. a Supabase service-role script
-   that mints a session for your own user and writes it to the same
-   `storage-state.json` path before the suite runs. No new app code — the
-   token minting lives in a setup script, not a route — but it does need the
-   service-role key available wherever the suite runs.
-3. **A dedicated test-sign-in route**, gated behind an env var that's unset
-   in production, for CI to use directly. Touches `app/auth` itself, so it's
-   the one with the most actual attack surface to reason about, even gated.
+## What's here
 
-My default would be **option 2** (a setup script, no new routes, reusable in
-CI) unless you'd rather keep this entirely manual (option 1) or want the
-dedicated route (option 3) for some other reason. Tell me which, and I'll
-wire it up — the test files below are already written against the plain
-`storageState` config, so whichever you pick just needs to produce that one
-file.
-
-## What's written and ready to run once auth is sorted
-
-- `drag-and-resize.spec.ts` — drags a block between two days with real
-  mouse events (`mouse.down` / `mouse.move` / `mouse.up`, not
-  `dragTo`'s synthetic HTML5 drag events, per the brief's explicit
-  requirement), opens the editor on a non-round-duration block and checks
-  the hours field defaults to its real value, and drags a block within a
-  day.
-- `reject-undo.spec.ts` — rejects a placed block, checks it reappears in
-  Unplaced with a "Rejected" tag, and that Undo restores it.
+- `edit-and-place-modals.spec.ts` — the core proof that the push/redirect/
+  split engine (`resolveDrop`) works the same through the tap UI as it used
+  to through a drag: editing a block onto an occupied slot pushes the
+  occupant later, onto a meeting redirects to the nearest free slot, and a
+  duration that runs past the end of the day splits across the day boundary
+  (both via the Edit modal's Save and the Place modal) — plus a plain
+  place-and-reload check.
+- `reject-undo.spec.ts` — removes a placed block via the Edit modal, checks
+  it reappears in Unscheduled with a "Rejected" tag, and that Undo restores
+  it exactly.
 - `zero-writes-on-load.spec.ts` — loads the Week screen twice and asserts no
-  `plan_items`/`weeks` row changes (v5 Stage 12c, V5-01) by reading row
+  `plan_items`/`weeks` row changes (v5 Stage 12c, V5-01), reading row
   counts/timestamps through the Supabase REST API with the service-role key
-  before and after, rather than inspecting network calls Playwright can't
-  see (the writes happen server-to-Supabase, invisible to the browser).
+  rather than inspecting network calls (the writes happen server-to-Supabase,
+  invisible to the browser).
 
-None of these seed their own fixture data yet (the brief's "seed a test week
-from fixtures" is still open) — they run against whatever's actually in the
-signed-in account's current week, which makes them fragile to real data
-changing out from under them. Fixture seeding is the next piece once a
-sign-in method is chosen.
+## Known fragility
+
+The app has no week-navigation, so every spec is constrained to whichever
+two weeks the Week screen actually renders ("this week" and "next week").
+As real dates roll forward, the real auto-build naturally fills those same
+weeks with real, legitimate work — which has twice now caused a spec to
+collide with real (non-fixture) rows and trip `assertNoRealDataTouched` for
+real, not as a false positive. When that happens: it's not a code bug,
+restore the affected week with a real resync (click Refresh, or call the
+`/api/sync/asana` route for a signed-in session) and re-run. A proper fix
+needs either a dedicated test-only Supabase project or a way to pin these
+tests to a week the real build will never touch — worth doing before this
+suite grows much further.

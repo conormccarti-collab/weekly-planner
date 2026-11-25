@@ -15,8 +15,8 @@ import { loadSettings } from "@/lib/settings-data";
 import { getWeekCapacity } from "@/lib/calendar/week-capacity";
 import { subtractOccupied, type Range } from "@/lib/blocks";
 import { partitionProtected, behindRemainderCandidates, type BuildCandidate, type ExistingRow } from "@/lib/plan-build";
-import type { FreeBlock } from "@/lib/auto-placement";
-import { addDaysToDateStr, mondayOf, parseHHMM, utcInstantToLocal } from "@/lib/time";
+import type { AutoPlaceCandidate, FreeBlock } from "@/lib/auto-placement";
+import { addDaysToDateStr, mondayOf, parseHHMM, utcInstantToLocal, weekdayOfDateStr } from "@/lib/time";
 import { env } from "@/lib/env";
 
 export type ExistingDbRow = {
@@ -49,6 +49,8 @@ export type WeekBuildInputs = {
   staleItems: { source: "asana" | "personal"; reference: string; name: string; dueOn: string | null }[];
   /** v5 Stage 12e.1: slots a user just rejected a block from — never re-proposed in the same slot. */
   avoidSlotByKey: Map<string, { day: string; startMinutes: number }>;
+  /** Rules window: a structured `avoid_weekday` scheduling rule, resolved to plain day strings for lib/auto-placement.ts. Undefined when there are no such rules. */
+  dayExcludedForCandidate?: (candidate: AutoPlaceCandidate, day: string) => boolean;
 };
 
 /**
@@ -130,6 +132,17 @@ export async function gatherWeekBuildInputs(
     avoidSlotByKey.set(`${r.source}:${r.reference}`, { day: r.day as string, startMinutes: parseHHMM(r.start_time as string) });
   }
 
+  // Rules window — migration 0027 may not be applied yet, same best-effort
+  // read as above. Only the structured `avoid_weekday` rules are used here;
+  // a freeform rule reaches chat context only (lib/chat/context.ts), never
+  // this deterministic build.
+  const { data: avoidWeekdayRules } = await supabase
+    .from("scheduling_rules")
+    .select("parsed_weekday, parsed_stage")
+    .eq("user_id", userId)
+    .eq("active", true)
+    .eq("parsed_kind", "avoid_weekday");
+
   // v5 Stage 12c: a fingerprint of every raw input the build depends on, so
   // `refreshDraftWeek` can tell "nothing changed since last time" and skip
   // the rebuild (and its write) entirely, rather than recomputing and
@@ -141,6 +154,7 @@ export async function gatherWeekBuildInputs(
     existing: [...existingRows].sort((a, b) => a.id.localeCompare(b.id)),
     weekCapacity,
     settings,
+    avoidWeekdayRules: [...(avoidWeekdayRules ?? [])].sort((a, b) => `${a.parsed_weekday}:${a.parsed_stage}`.localeCompare(`${b.parsed_weekday}:${b.parsed_stage}`)),
   });
 
   // v5 Stage 12d: "Plan only: tasks and subtasks in Visual Content Pipeline
@@ -180,12 +194,41 @@ export async function gatherWeekBuildInputs(
     if (r.must) mustByKey.set(`${r.source}:${r.reference}`, true);
   }
 
+  // Brief section 8 / BUILD_BRIEF.md line 154: "A task is in 'this week' if
+  // it is due this week or overdue, was left unfinished in last week's saved
+  // plan, is flagged Must, or was pulled in by the user." The fourth case —
+  // "pulled in" (the Everything-else list's "Add to this week", which just
+  // inserts a day:null plan_items row for this week) — was never actually
+  // wired into eligibility here: the very next rebuild recomputed candidates
+  // from scratch, didn't recognise the pulled-in row as a reason to keep it,
+  // and silently deleted it. Any existing row for this week (other than a
+  // "moved" marker, which means the opposite — this task was deliberately
+  // pushed OUT to next week, and must not immediately bounce back in) now
+  // counts as "pulled in by the user" and survives a rebuild.
+  const pulledInKeys = new Set(
+    existingRows.filter((r) => r.status !== "moved").map((r) => `${r.source}:${r.reference}`)
+  );
+
   // v5 Stage 12d.4 fix: staleness also applies per-task, not only per-root.
   // A deliverable can have no publish date at all (so the root-level check
   // above never catches it) while one of its own subtasks carries a real,
   // long-overdue due date of its own (e.g. an Edit subtask due months ago)
   // — that subtask is individually Stale and must not be placed, even
   // though the rest of its deliverable is fine.
+  //
+  // `isDueThisWeekOrOverdue` only checks an upper bound ("due before this
+  // week ends") — correct for the real current week, where anything overdue
+  // from the past must still be swept in, but wrong when this same build
+  // runs for the *following* week: every task due this week is trivially
+  // "due before next week ends" too, so without a lower bound it was being
+  // re-proposed as a fresh candidate for next week even when it already had
+  // a full, committed placement this week — producing a stray unplaced row
+  // there and a misleading "couldn't fit" on an already-placed task.
+  const isCurrentWeek = weekStart === mondayOf(todayStr);
+  const dueWithinThisBuildsWeek = (dueOn: string | null): boolean => {
+    if (!isDueThisWeekOrOverdue(dueOn, weekEndExclusive)) return false;
+    return isCurrentWeek || dueOn! >= weekStart;
+  };
   const eligibleAsanaGids = new Set<string>();
   for (const [gid, task] of taskByRef) {
     if (task.is_container || !task.is_plannable) continue;
@@ -196,7 +239,7 @@ export async function gatherWeekBuildInputs(
     const key = `asana:${gid}`;
     if (parkedKeys.has(key)) continue;
     const isMust = mustByKey.get(key) ?? false;
-    if (isMust || isDueThisWeekOrOverdue(task.due_on, weekEndExclusive)) eligibleAsanaGids.add(gid);
+    if (isMust || dueWithinThisBuildsWeek(task.due_on) || pulledInKeys.has(key)) eligibleAsanaGids.add(gid);
   }
   const eligiblePersonal = personalTasks.filter((t) => {
     if (isStale(t.due_on, todayStr)) {
@@ -206,7 +249,7 @@ export async function gatherWeekBuildInputs(
     const key = `personal:${t.id}`;
     if (parkedKeys.has(key)) return false;
     const isMust = mustByKey.get(key) ?? false;
-    return isMust || isDueThisWeekOrOverdue(t.due_on, weekEndExclusive);
+    return isMust || dueWithinThisBuildsWeek(t.due_on) || pulledInKeys.has(key);
   });
 
   const targets: EstimateTarget[] = [];
@@ -284,11 +327,13 @@ export async function gatherWeekBuildInputs(
   const candidates: BuildCandidate[] = [];
   const needsEstimatePick: { source: "asana" | "personal"; reference: string }[] = [];
   const nameByKey = new Map<string, string>();
+  const stageByKey = new Map<string, string | null>();
 
   for (const gid of eligibleAsanaGids) {
     const task = taskByRef.get(gid)!;
     nameByKey.set(`asana:${gid}`, task.name);
     const stageInfo = stageInfoByRef.get(gid);
+    stageByKey.set(`asana:${gid}`, stageInfo?.stage ?? null);
     const focusType = stageInfo?.focusType ?? null;
     if (focusType === "away" || focusType === "waiting") continue; // fixed 0h — never placed
     const key = `asana:${gid}`;
@@ -378,7 +423,12 @@ export async function gatherWeekBuildInputs(
     protectedOccupiedByDay.set(r.day, list);
   }
   const freeBlocksByDay = new Map<string, FreeBlock[]>();
-  const dayOrder = weekCapacity.filter((d) => d.isWorkingDay).map((d) => d.dateStr);
+  // A day before today is never a placement target for freshly-ranked
+  // candidates — existing rows there are already protected by
+  // `partitionProtected` above, but without this filter the day's leftover
+  // free capacity (whatever wasn't already occupied) stayed in `dayOrder`
+  // and new work could land on a day that's already passed.
+  const dayOrder = weekCapacity.filter((d) => d.isWorkingDay && d.dateStr >= todayStr).map((d) => d.dateStr);
   for (const day of weekCapacity) {
     freeBlocksByDay.set(day.dateStr, subtractOccupied(day.freeBlocks, protectedOccupiedByDay.get(day.dateStr) ?? []));
   }
@@ -391,5 +441,30 @@ export async function gatherWeekBuildInputs(
     completedByGid = new Map((blockerRows ?? []).map((r) => [r.gid as string, r.completed as boolean]));
   }
 
-  return { candidates, needsEstimatePick, nameByKey, mustByKey, existingRows, protectedKeys, freeBlocksByDay, dayOrder, weekCapacityHours, completedByGid, toRank, inputHash, staleItems, avoidSlotByKey };
+  const dayExcludedForCandidate =
+    avoidWeekdayRules && avoidWeekdayRules.length > 0
+      ? (candidate: AutoPlaceCandidate, day: string) => {
+          const weekday = weekdayOfDateStr(day);
+          const stage = stageByKey.get(`${candidate.source}:${candidate.reference}`) ?? null;
+          return avoidWeekdayRules.some((r) => r.parsed_weekday === weekday && (r.parsed_stage == null || r.parsed_stage === stage));
+        }
+      : undefined;
+
+  return {
+    candidates,
+    needsEstimatePick,
+    nameByKey,
+    mustByKey,
+    existingRows,
+    protectedKeys,
+    freeBlocksByDay,
+    dayOrder,
+    weekCapacityHours,
+    completedByGid,
+    toRank,
+    inputHash,
+    staleItems,
+    avoidSlotByKey,
+    dayExcludedForCandidate,
+  };
 }

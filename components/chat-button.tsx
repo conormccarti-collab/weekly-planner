@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname } from "next/navigation";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import {
   sendChatMessage,
   confirmPersonalTasks,
@@ -9,6 +10,7 @@ import {
   confirmPriorityOverride,
   confirmPlanChange,
   type ChatProposal,
+  type ChatProposalAction,
   type MondayListProposalItem,
 } from "@/app/(app)/chat/actions";
 import type { MatchCandidate } from "@/lib/chat/match";
@@ -47,51 +49,55 @@ export function ChatButton() {
 
   if (pathname === "/") return null;
 
-  function applyProposal(proposal: ChatProposal) {
-    if (proposal.type === "monday_list") {
+  function applyAction(action: ChatProposalAction) {
+    if (action.type === "monday_list") {
       setMondayDraft(
-        proposal.items.map((item) => ({
+        action.items.map((item) => ({
           ...item,
           linkedReference: item.candidates[0]?.score && item.candidates[0].score >= 0.6 ? item.candidates[0].reference : null,
           include: true,
         }))
       );
-    } else if (proposal.type === "idea") {
-      setIdeaDraft(proposal.items.map((i) => i.title));
-    } else if (proposal.type === "priority_override") {
+    } else if (action.type === "idea") {
+      setIdeaDraft(action.items.map((i) => i.title));
+    } else if (action.type === "priority_override") {
       setPriorityDraft({
-        taskName: proposal.taskName,
-        newPriority: proposal.newPriority,
-        candidates: proposal.candidates,
-        selected: proposal.candidates[0] ? `${proposal.candidates[0].source}:${proposal.candidates[0].reference}` : null,
+        taskName: action.taskName,
+        newPriority: action.newPriority,
+        candidates: action.candidates,
+        selected: action.candidates[0] ? `${action.candidates[0].source}:${action.candidates[0].reference}` : null,
       });
-    } else if (proposal.type === "plan_change") {
+    } else if (action.type === "plan_change") {
       setPlanChangeDraft({
-        taskName: proposal.taskName,
-        newDay: proposal.newDay ?? "",
-        candidates: proposal.candidates,
-        selected: proposal.candidates[0] ? `${proposal.candidates[0].source}:${proposal.candidates[0].reference}` : null,
+        taskName: action.taskName,
+        newDay: action.newDay ?? "",
+        candidates: action.candidates,
+        selected: action.candidates[0] ? `${action.candidates[0].source}:${action.candidates[0].reference}` : null,
       });
-    } else if (proposal.type === "answer") {
-      setHistory((h) => [...h, { kind: "answer", text: proposal.text }]);
     } else {
-      // v4 Stage 2's edit tools (Must/remove/park/estimate) and "regenerate"
-      // are only ever offered to the docked week-chat (sendChatMessage's
-      // editTools option, never set to true from this floating popup), so
-      // this is defensive, not an expected path.
+      // v4 Stage 2's edit tools (Must/remove/park/estimate/split/
+      // reprioritise) are only ever offered to the docked week-chat
+      // (sendChatMessage's editTools option, never set to true from this
+      // floating popup), so this is defensive, not an expected path.
       setHistory((h) => [...h, { kind: "error", text: "That kind of change isn't available from this chat — try it from the Week screen." }]);
     }
+  }
+
+  function applyProposal(response: ChatProposal) {
+    if (response.text) setHistory((h) => [...h, { kind: "answer", text: response.text }]);
+    if (response.proposal) applyAction(response.proposal);
   }
 
   function send() {
     const text = input.trim();
     if (!text || pending) return;
     setInput("");
+    const conversationHistory = history.filter((e) => e.kind !== "error").map((e) => ({ role: e.kind === "user" ? ("user" as const) : ("assistant" as const), content: e.text }));
     setHistory((h) => [...h, { kind: "user", text }]);
     startTransition(async () => {
       try {
-        const proposal = await sendChatMessage(text);
-        applyProposal(proposal);
+        const response = await sendChatMessage(text, { history: conversationHistory });
+        applyProposal(response);
       } catch (err) {
         setHistory((h) => [...h, { kind: "error", text: err instanceof Error ? err.message : "Something went wrong." }]);
       }
@@ -102,7 +108,7 @@ export function ChatButton() {
     if (!mondayDraft) return;
     const items = mondayDraft.filter((i) => i.include);
     startTransition(async () => {
-      await confirmPersonalTasks(
+      const result = await confirmPersonalTasks(
         items.map((i) => ({
           name: i.name,
           estimateHours: i.estimateHours,
@@ -111,12 +117,7 @@ export function ChatButton() {
           linkedReference: i.linkedReference,
         }))
       );
-      const created = items.filter((i) => !i.linkedReference).length;
-      const linked = items.length - created;
-      setHistory((h) => [
-        ...h,
-        { kind: "answer", text: `Added ${created} task${created === 1 ? "" : "s"}${linked > 0 ? `, linked ${linked} to existing tasks` : ""}.` },
-      ]);
+      setHistory((h) => [...h, { kind: result.unfitNames.length > 0 ? "error" : "answer", text: result.text }]);
       setMondayDraft(null);
     });
   }
@@ -163,7 +164,7 @@ export function ChatButton() {
   return (
     <>
       {open && (
-        <div className="fixed bottom-20 right-6 flex max-h-[70vh] w-96 flex-col rounded-lg border border-border bg-slate shadow-lg">
+        <div className="fixed bottom-20 right-6 flex max-h-[70vh] w-96 flex-col rounded-2xl border border-border bg-slate shadow-xl">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-sm font-semibold text-chalk">Chat</span>
             <button onClick={() => setOpen(false)} className="text-chalk-dim hover:text-chalk">
@@ -189,7 +190,7 @@ export function ChatButton() {
                       : "bg-raven text-chalk"
                 }`}
               >
-                {entry.text}
+                <ChatMarkdown text={entry.text} />
               </div>
             ))}
 

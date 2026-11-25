@@ -3,12 +3,12 @@ import { brandColorsFor, officeAccentFor, OFFICES } from "@/lib/brand-colors";
 
 describe("brandColorsFor", () => {
   it("matches a known brand case-insensitively and trimmed", () => {
-    expect(brandColorsFor("  Scotland  ")).toEqual({ label: "Scotland", tint: "#353A42", edge: "#8B90C1" });
-    expect(brandColorsFor("WPT")).toEqual({ label: "WPT", tint: "#323839", edge: "#BE9E61" });
+    expect(brandColorsFor("  Scotland  ")).toEqual({ label: "Scotland", tint: "#F3F4F9", edge: "#8B90C1" });
+    expect(brandColorsFor("WPT")).toEqual({ label: "WPT", tint: "#F9F5EF", edge: "#BE9E61" });
   });
 
   it("falls back to the dashed no-brand style for null or an unknown value", () => {
-    const noBrand = { label: "No brand", tint: "#303634", edge: "#787F7C", dashed: true };
+    const noBrand = { label: "No brand", tint: "#F0ECEE", edge: "#828276", dashed: true };
     expect(brandColorsFor(null)).toEqual(noBrand);
     expect(brandColorsFor("Nonsense")).toEqual(noBrand);
   });

@@ -37,6 +37,11 @@ export async function saveSettings(formData: FormData) {
   const officeRaw = formData.get("office");
   const office = typeof officeRaw === "string" && OFFICES.includes(officeRaw as (typeof OFFICES)[number]) ? officeRaw : null;
   const notificationsEnabled = formData.get("notifications_enabled") === "on";
+  const lunchEnabled = formData.get("lunch_enabled") === "on";
+  const lunchMode = formData.get("lunch_mode") === "flexible" ? "flexible" : "fixed";
+  const lunchWindowStart = String(formData.get("lunch_window_start") || "12:00");
+  const lunchWindowEnd = String(formData.get("lunch_window_end") || "14:00");
+  const minSplitPartMinutes = Number(formData.get("min_split_part_minutes"));
 
   // v5 Stage 12d.1: one checkbox per known project (`asana_projects`), named
   // `planned_project_<gid>` — every checked one is included.
@@ -76,6 +81,19 @@ export async function saveSettings(formData: FormData) {
   if (error) {
     throw new Error(error.message);
   }
+
+  // v5 Stage 12g §C: a separate best-effort write — migration 0025 may not
+  // be applied yet, and a failure here must not block the rest of the save.
+  await supabase
+    .from("settings")
+    .update({
+      lunch_enabled: lunchEnabled,
+      lunch_mode: lunchMode,
+      lunch_window_start: lunchWindowStart,
+      lunch_window_end: lunchWindowEnd,
+      ...(Number.isFinite(minSplitPartMinutes) ? { min_split_part_minutes: minSplitPartMinutes } : {}),
+    })
+    .eq("user_id", user.id);
 
   // The Office picker sets the accent colour applied in the (app) layout —
   // revalidate the whole app shell, not just this page.

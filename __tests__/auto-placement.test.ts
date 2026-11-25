@@ -247,4 +247,98 @@ describe("proposeAutoPlacement", () => {
       ]);
     });
   });
+
+  describe("auto-splitting (v5 Stage 12g §B — a task bigger than any single gap)", () => {
+    it("splits a task across two days' gaps and labels the parts", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "big", estimateHours: 2 })],
+        freeBlocks({
+          "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }], // 1h
+          "2026-11-17": [{ startMinutes: 540, endMinutes: 600 }], // 1h
+        }),
+        dayOrder
+      );
+      expect(result.unplaced).toEqual([]);
+      expect(result.placements).toEqual([
+        { source: "asana", reference: "big", day: "2026-11-16", startMinutes: 540, endMinutes: 600, partIndex: 1, partCount: 2 },
+        { source: "asana", reference: "big", day: "2026-11-17", startMinutes: 540, endMinutes: 600, partIndex: 2, partCount: 2 },
+      ]);
+    });
+
+    it("conserves hours across a multi-day split (28h edit over a 5-day week)", () => {
+      const fiveDayOrder = ["2026-11-16", "2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20"];
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "big", estimateHours: 28, focusType: "deep" })],
+        freeBlocks(
+          Object.fromEntries(fiveDayOrder.map((d) => [d, [{ startMinutes: 540, endMinutes: 540 + 6 * 60 }]])) // 6h/day * 5 = 30h capacity
+        ),
+        fiveDayOrder
+      );
+      expect(result.unplaced).toEqual([]);
+      const totalMinutes = result.placements.reduce((sum, p) => sum + (p.endMinutes - p.startMinutes), 0);
+      expect(totalMinutes).toBe(28 * 60);
+      expect(result.placements[0].partCount).toBe(result.placements.length);
+    });
+
+    it("respects the minimum part size, leaving it unplaced rather than opening a sliver part", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "big", estimateHours: 1.5 })], // 90 min
+        freeBlocks({
+          "2026-11-16": [{ startMinutes: 540, endMinutes: 570 }], // 30min — too small to be a part
+          "2026-11-17": [{ startMinutes: 540, endMinutes: 600 }], // 60min
+        }),
+        dayOrder,
+        undefined,
+        60 // minPartMinutes
+      );
+      expect(result.placements).toEqual([]);
+      expect(result.unplaced).toEqual([{ source: "asana", reference: "big", reason: "No suitable free block this week" }]);
+    });
+  });
+
+  describe("dayExcludedForCandidate (rules window — a structured avoid_weekday rule)", () => {
+    it("skips an excluded day for a matching candidate, choosing a different one", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "a", estimateHours: 1 })],
+        freeBlocks({
+          "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }],
+          "2026-11-17": [{ startMinutes: 540, endMinutes: 600 }],
+        }),
+        dayOrder,
+        undefined,
+        60,
+        (_, day) => day === "2026-11-16"
+      );
+      expect(result.placements).toEqual([
+        { source: "asana", reference: "a", day: "2026-11-17", startMinutes: 540, endMinutes: 600 },
+      ]);
+    });
+
+    it("leaves it unplaced rather than using the excluded day when it's the only one that fits", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "a", estimateHours: 1 })],
+        freeBlocks({ "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }] }),
+        dayOrder,
+        undefined,
+        60,
+        (_, day) => day === "2026-11-16"
+      );
+      expect(result.placements).toEqual([]);
+      expect(result.unplaced).toEqual([{ source: "asana", reference: "a", reason: "No suitable free block this week" }]);
+    });
+
+    it("doesn't affect a candidate the predicate doesn't match", () => {
+      const result = proposeAutoPlacement(
+        [candidate({ reference: "a", estimateHours: 1 })],
+        freeBlocks({ "2026-11-16": [{ startMinutes: 540, endMinutes: 600 }] }),
+        dayOrder,
+        undefined,
+        60,
+        (c) => c.reference === "someone-else"
+      );
+      expect(result.placements).toEqual([
+        { source: "asana", reference: "a", day: "2026-11-16", startMinutes: 540, endMinutes: 600 },
+      ]);
+    });
+  });
 });
