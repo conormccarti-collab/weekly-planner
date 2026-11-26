@@ -13,6 +13,7 @@ import { EstimateDefaultsForm } from "./estimate-defaults-form";
 import { SchedulingRulesForm } from "./scheduling-rules-form";
 import { listSchedulingRules } from "./rules-actions";
 import { ReconnectCalendarButton } from "@/components/reconnect-calendar-button";
+import { loadRecentAutoChanges } from "@/lib/audit-log";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -63,6 +64,7 @@ export default async function SettingsPage() {
     recentSyncFailures = count ?? 0;
   }
   const sentryConfigured = !!process.env.SENTRY_DSN;
+  const recentAutoChanges = user ? await loadRecentAutoChanges(supabase, user.id) : [];
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -99,6 +101,23 @@ export default async function SettingsPage() {
             <span>Error logging</span>
             <span className="text-chalk-dim">{sentryConfigured ? "Sentry configured" : "Sentry not configured (SENTRY_DSN unset)"}</span>
           </div>
+        </section>
+
+        <section className="rounded-2xl border border-border bg-slate p-5">
+          <h2 className="text-sm font-bold text-chalk">Recent automatic changes</h2>
+          <p className="mt-1 text-xs text-chalk-dim">Things the app changed on its own — a guessed estimate, a stale placement swept forward — not actions you asked for directly.</p>
+          {recentAutoChanges.length === 0 ? (
+            <p className="mt-2 text-xs text-chalk-dim">Nothing yet.</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5 text-xs">
+              {recentAutoChanges.map((entry) => (
+                <li key={entry.id} className="flex items-start justify-between gap-3 rounded-lg border border-border bg-raven px-3 py-2">
+                  <span className="text-chalk-dim">{entry.summary}</span>
+                  <span className="shrink-0 text-chalk-dim">{entry.createdAt.slice(0, 10)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <SettingsForm initial={initial} knownProjects={knownProjects} />

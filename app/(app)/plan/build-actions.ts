@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { buildWeekPlan } from "@/lib/plan-build";
 import { gatherWeekBuildInputs } from "@/lib/plan-build-data";
 import { runWorkAheadFill } from "@/app/(app)/plan/actions";
+import { logAutoChange } from "@/lib/audit-log";
 import { addDaysToDateStr, formatHHMM, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 
@@ -72,13 +73,21 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
   // options," not "freeze it here even once its day is gone."
   if (!isNewWeek) {
     const todayStr = utcInstantToLocal(new Date(), env.appTimezone()).dateStr;
-    await supabase
+    const { data: swept } = await supabase
       .from("plan_items")
       .update({ day: null, start_time: null, end_time: null, pinned: false })
       .eq("user_id", userId)
       .eq("week_start", weekStart)
       .in("status", ["planned", "suggested"])
-      .lt("day", todayStr);
+      .lt("day", todayStr)
+      .select("id");
+    if (swept && swept.length > 0) {
+      await logAutoChange(
+        supabase,
+        userId,
+        `Swept ${swept.length} unconfirmed task${swept.length === 1 ? "" : "s"} forward off a stale past day in the week of ${weekStart} so Auto-Schedule can re-place ${swept.length === 1 ? "it" : "them"}.`
+      );
+    }
   }
 
   const inputs = await gatherWeekBuildInputs(supabase, userId, weekStart);

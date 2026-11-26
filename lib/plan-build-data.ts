@@ -9,6 +9,7 @@ import { STAGES } from "@/lib/asana/stage";
 import { resolveEstimatesForTasks, type EstimateTarget } from "@/lib/estimates-data";
 import { placementHours, type EstimateResult } from "@/lib/estimates";
 import { suggestEstimateHours } from "@/lib/chat/claude";
+import { logAutoChange } from "@/lib/audit-log";
 import { resolvePriority } from "@/lib/priority";
 import { isDueThisWeekOrOverdue } from "@/lib/plan";
 import { loadSettings } from "@/lib/settings-data";
@@ -344,6 +345,11 @@ export async function gatherWeekBuildInputs(
       estimate_hours: hours,
       estimate_origin: "suggested",
       updated_at: new Date().toISOString(),
+    });
+    await logAutoChange(supabase, userId, `Guessed ${hours}h for "${name}" — no user, learned, or default estimate to go on yet.`, {
+      source,
+      reference,
+      hours,
     });
     return { hours, origin: "suggested", label: "suggested" };
   }
