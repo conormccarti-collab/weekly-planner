@@ -15,7 +15,7 @@ export type PlacedItem = {
   pinned: boolean;
 };
 
-export type UnplacedRef = { source: "asana" | "personal"; reference: string; must: boolean };
+export type UnplacedRef = { source: "asana" | "personal"; reference: string; must: boolean; reason: string | null };
 
 export type WeekPlanData = {
   weekStart: string;
@@ -88,17 +88,22 @@ export async function loadWeekPlan(
 ): Promise<WeekPlanData> {
   const weekEndExclusive = addDaysToDateStr(weekStart, 7);
 
-  const [weekResult, itemsResult] = await Promise.all([
+  const [weekResult, itemsResult, reasonResult] = await Promise.all([
     supabase.from("weeks").select("status").eq("user_id", userId).eq("week_start", weekStart).maybeSingle(),
     supabase
       .from("plan_items")
       .select("id, source, reference, must, day, hours, actual_hours, status, start_time, end_time, pinned")
       .eq("user_id", userId)
       .eq("week_start", weekStart),
+    // Migration 0030 may not be applied yet — same best-effort pattern as
+    // lunch_overrides/day_locks/scheduling_rules: a failed query here (column
+    // doesn't exist yet) leaves `data` null, treated as "no reasons stored."
+    supabase.from("plan_items").select("id, reason").eq("user_id", userId).eq("week_start", weekStart),
   ]);
 
   const status = (weekResult.data?.status as "draft" | "saved" | undefined) ?? "draft";
   const allRows = itemsResult.data ?? [];
+  const reasonById = new Map((reasonResult.data ?? []).map((r) => [r.id as string, r.reason as string | null]));
   const movedAwayRefs = new Set(allRows.filter((r) => r.status === "moved").map((r) => `${r.source}:${r.reference}`));
   const rows = allRows.filter((r) => r.status !== "moved");
 
@@ -125,7 +130,12 @@ export async function loadWeekPlan(
 
   const unplaced: UnplacedRef[] = rows
     .filter((r) => r.day == null)
-    .map((r) => ({ source: r.source as "asana" | "personal", reference: r.reference as string, must: r.must as boolean }));
+    .map((r) => ({
+      source: r.source as "asana" | "personal",
+      reference: r.reference as string,
+      must: r.must as boolean,
+      reason: reasonById.get(r.id as string) ?? null,
+    }));
 
   return { weekStart, weekEndExclusive, status, placed, unplaced, movedAwayRefs };
 }

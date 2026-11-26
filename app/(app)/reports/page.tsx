@@ -35,25 +35,27 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   }
 
   return (
-    <div>
+    <div className="mx-auto max-w-4xl">
       <h1 className="text-lg font-semibold">Reports</h1>
       <p className="mt-1 text-sm text-chalk-dim">
         Planned vs. actual hours by Video Type and stage, from blocks marked Done. Feeds the capacity review.
       </p>
 
-      <div className="mt-3 flex items-center gap-2 text-xs">
-        {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
-          <Link
-            key={p}
-            href={`/reports?period=${p}`}
-            className={`rounded border px-2 py-1 ${p === period ? "border-accent bg-accent text-on-accent" : "border-border text-chalk hover:bg-surface-hover"}`}
-          >
-            {PERIOD_LABELS[p]}
-          </Link>
-        ))}
+      <div className="mt-4 flex items-center gap-2 text-xs">
+        <div className="inline-flex rounded-xl bg-surface-hover p-1">
+          {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+            <Link
+              key={p}
+              href={`/reports?period=${p}`}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${p === period ? "bg-accent text-on-accent" : "text-chalk-dim hover:text-chalk"}`}
+            >
+              {PERIOD_LABELS[p]}
+            </Link>
+          ))}
+        </div>
         <a
           href={`/api/reports/estimate-csv?period=${period}`}
-          className="ml-auto rounded border border-border px-2 py-1 text-chalk hover:bg-surface-hover"
+          className="ml-auto rounded-lg border border-border px-3 py-1.5 font-bold text-chalk hover:bg-surface-hover"
         >
           Export CSV
         </a>
@@ -62,50 +64,52 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       {report.length === 0 ? (
         <p className="mt-4 text-sm text-chalk-dim">No placed Asana blocks with a Video Type and recognised stage in this period.</p>
       ) : (
-        <table className="mt-4 w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-xs text-chalk-dim">
-              <th className="py-1">Video Type</th>
-              <th>Stage</th>
-              <th className="text-right">Planned</th>
-              <th className="text-right">Actual</th>
-              <th className="text-right">Done blocks</th>
-              <th className="text-right">Difference</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {report.map((row) => {
-              const variants = defaultVariantsByKey.get(`${row.videoType}:${row.stage}`) ?? [];
-              return (
-                <tr key={`${row.videoType}:${row.stage}`} className="border-b border-border text-chalk">
-                  <td className="py-1.5">{row.videoType}</td>
-                  <td>{row.stage}</td>
-                  <td className="text-right">{row.plannedHours.toFixed(1)}h</td>
-                  <td className="text-right">{row.actualHours.toFixed(1)}h</td>
-                  <td className="text-right">{row.doneBlockCount}</td>
-                  <td className={`text-right ${row.difference > 0 ? "text-danger" : "text-success"}`}>
-                    {row.difference >= 0 ? "+" : ""}
-                    {row.difference.toFixed(1)}h
-                  </td>
-                  <td className="text-right">
-                    {row.suggestedDefault != null &&
-                      variants.map((v) => (
-                        <UseAsDefaultButton
-                          key={v.variant}
-                          videoType={row.videoType}
-                          stage={row.stage}
-                          variant={v.variant}
-                          currentHours={v.hours}
-                          suggestedHours={Math.round(row.suggestedDefault! * 4) / 4}
-                        />
-                      ))}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-slate">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-surface-hover text-left text-[11px] font-bold uppercase tracking-wide text-chalk-dim">
+                <th className="px-4 py-2.5">Video Type</th>
+                <th className="py-2.5">Stage</th>
+                <th className="py-2.5 text-right">Planned</th>
+                <th className="py-2.5 text-right">Actual</th>
+                <th className="py-2.5 text-right">Done blocks</th>
+                <th className="px-4 py-2.5 text-right">Difference</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {report.map((row) => {
+                const variants = defaultVariantsByKey.get(`${row.videoType}:${row.stage}`) ?? [];
+                return (
+                  <tr key={`${row.videoType}:${row.stage}`} className="border-t border-border text-chalk">
+                    <td className="px-4 py-2.5 font-bold">{row.videoType}</td>
+                    <td className="py-2.5">{row.stage}</td>
+                    <td className="py-2.5 text-right">{row.plannedHours.toFixed(1)}h</td>
+                    <td className="py-2.5 text-right">{row.actualHours.toFixed(1)}h</td>
+                    <td className="py-2.5 text-right">{row.doneBlockCount}</td>
+                    <td className={`px-4 py-2.5 text-right ${row.difference > 0 ? "text-danger" : "text-success"}`}>
+                      {row.difference >= 0 ? "+" : ""}
+                      {row.difference.toFixed(1)}h
+                    </td>
+                    <td className="py-2.5 pr-4 text-right">
+                      {row.suggestedDefault != null &&
+                        variants.map((v) => (
+                          <UseAsDefaultButton
+                            key={v.variant}
+                            videoType={row.videoType}
+                            stage={row.stage}
+                            variant={v.variant}
+                            currentHours={v.hours}
+                            suggestedHours={Math.round(row.suggestedDefault! * 4) / 4}
+                          />
+                        ))}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

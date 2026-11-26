@@ -12,11 +12,17 @@ export type FollowUpReminder = {
   dueOn: string;
   isOverdue: boolean;
 };
-export type RemindersData = { checkoffs: CheckoffReminder[]; followUps: FollowUpReminder[] };
+export type NewProjectReminder = { id: string; projectGid: string; projectName: string };
+export type RemindersData = { checkoffs: CheckoffReminder[]; followUps: FollowUpReminder[]; newProjects: NewProjectReminder[] };
 
 /** Auto-resolve: nothing left to check off once the Asana task is completed, or gone. */
 export function isCheckoffStillPending(task: { completed: boolean } | null | undefined): boolean {
   return task != null && !task.completed;
+}
+
+/** Auto-resolve: the nudge is satisfied once the project is added to Settings — no explicit retraction needed. */
+export function isNewProjectReminderStillPending(projectGid: string, plannedProjectGids: string[]): boolean {
+  return !plannedProjectGids.includes(projectGid);
 }
 
 /** The most common value in the list, or undefined if it's empty. Ties keep whichever is seen first. */
@@ -71,6 +77,22 @@ export async function dismissReminderById(supabase: SupabaseClient, userId: stri
 }
 
 /**
+ * Called from runAsanaSync when a project gid is new to asana_projects for
+ * this user. A no-op is left to the caller (it should skip calling this at
+ * all when the gid is already in settings.planned_project_gids) rather than
+ * checked here, since sync.ts already has settings loaded at that point.
+ * Re-upserting clears a prior dismissal, same as the checkoff reminder.
+ */
+export async function createNewProjectReminder(supabase: SupabaseClient, userId: string, projectGid: string): Promise<void> {
+  await supabase
+    .from("reminders")
+    .upsert(
+      { user_id: userId, kind: "new_outside_project", reference: projectGid, dismissed_at: null },
+      { onConflict: "user_id,kind,reference" }
+    );
+}
+
+/**
  * Read-time assembly for the Week page and chat context. Tolerant of
  * migration 0028 not being applied yet, same best-effort pattern as
  * lunch_overrides/day_locks/scheduling_rules (lib/calendar/week-capacity.ts):
@@ -79,7 +101,7 @@ export async function dismissReminderById(supabase: SupabaseClient, userId: stri
 export async function loadReminders(
   supabase: SupabaseClient,
   userId: string,
-  opts: { todayStr: string; workingDays: Weekday[] }
+  opts: { todayStr: string; workingDays: Weekday[]; plannedProjectGids: string[] }
 ): Promise<RemindersData> {
   const { data: pendingRows } = await supabase
     .from("reminders")
@@ -145,5 +167,30 @@ export async function loadReminders(
     }
   }
 
-  return { checkoffs, followUps };
+  const { data: pendingProjectRows } = await supabase
+    .from("reminders")
+    .select("id, reference")
+    .eq("user_id", userId)
+    .eq("kind", "new_outside_project")
+    .is("dismissed_at", null);
+
+  const newProjects: NewProjectReminder[] = [];
+  const projectRows = (pendingProjectRows ?? []).filter((r) => isNewProjectReminderStillPending(r.reference as string, opts.plannedProjectGids));
+  if (projectRows.length > 0) {
+    const { data: projects } = await supabase
+      .from("asana_projects")
+      .select("gid, name")
+      .in(
+        "gid",
+        projectRows.map((r) => r.reference as string)
+      );
+    const nameByGid = new Map((projects ?? []).map((p) => [p.gid as string, p.name as string]));
+    for (const row of projectRows) {
+      const name = nameByGid.get(row.reference as string);
+      if (!name) continue; // the project itself is gone — nothing left to decide
+      newProjects.push({ id: row.id as string, projectGid: row.reference as string, projectName: name });
+    }
+  }
+
+  return { checkoffs, followUps, newProjects };
 }

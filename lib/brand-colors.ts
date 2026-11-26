@@ -1,10 +1,10 @@
 /**
  * v2 changes, section D: per-task Brand coloring for calendar blocks.
  * Single source of truth for the Brand -> color table. `edge` is each
- * brand's actual swatch from the brand guide
- * (wildernessscotland.com/brand-guidelines); `tint` is that same hue mixed
- * 10% into white, computed (not eyeballed) so every brand reads consistently
- * pale - all clear 8.9:1+ with chalk (Raven) text on every tint below.
+ * brand's solid accent color; `tint` is that same hue blended faintly into
+ * the dark surface (v5 Stage 15 facelift) rather than into white, so a
+ * brand-colored block still reads clearly on the new dark day-card
+ * background instead of nearly disappearing.
  */
 export type BrandColors = {
   label: string;
@@ -16,15 +16,15 @@ export type BrandColors = {
 };
 
 const BRAND_TABLE: Record<string, BrandColors> = {
-  scotland: { label: "Scotland", tint: "#F3F4F9", edge: "#8B90C1" }, // Thistle
-  england: { label: "England", tint: "#FBF6F6", edge: "#DAA1A6" }, // Rose
-  ireland: { label: "Ireland", tint: "#F5F7F1", edge: "#96AF72" }, // Shamrock
-  wpt: { label: "WPT", tint: "#F9F5EF", edge: "#BE9E61" }, // Ochre
-  "wilderness group": { label: "Wilderness Group", tint: "#F0F8F7", edge: "#65BBB0" }, // Lough
-  mvlt: { label: "MVLT", tint: "#F3F3F1", edge: "#1D1D1D" }, // not a Wilderness brand - kept monochrome (Raven)
+  scotland: { label: "Scotland", tint: "#1C2A33", edge: "#5FA3DB" },
+  england: { label: "England", tint: "#1C2E22", edge: "#70C48F" },
+  ireland: { label: "Ireland", tint: "#2E2614", edge: "#F0A24F" },
+  wpt: { label: "WPT", tint: "#2A2233", edge: "#B896E0" },
+  "wilderness group": { label: "Wilderness Group", tint: "#1A2E2E", edge: "#52C3CA" },
+  mvlt: { label: "MVLT", tint: "#1E2926", edge: "#9AABB3" }, // not a Wilderness brand - kept monochrome
 };
 
-const NO_BRAND: BrandColors = { label: "No brand", tint: "#F0ECEE", edge: "#828276", dashed: true }; // Chalk / Dove
+const NO_BRAND: BrandColors = { label: "No brand", tint: "#1E2926", edge: "#93A39C", dashed: true };
 
 /** Looks up the Brand custom field value (case-insensitive, trimmed), falling back to the no-brand style. */
 export function brandColorsFor(brand: string | null): BrandColors {
@@ -41,11 +41,10 @@ export function brandColorsFor(brand: string | null): BrandColors {
 export const OFFICES = ["Scotland", "England", "Ireland", "WPT", "MVLT", "Wilderness Group"] as const;
 export type Office = (typeof OFFICES)[number];
 
-/** Raven (#1D1D1D) reads at 5.5:1+ against every one of these — checked, not assumed. */
 export function officeAccentFor(office: string | null): { accent: string; onAccent: string } | null {
   if (office == null) return null;
   const key = office.trim().toLowerCase();
   const brand = BRAND_TABLE[key];
   if (!brand) return null;
-  return { accent: brand.edge, onAccent: "#1D1D1D" };
+  return { accent: brand.edge, onAccent: "#0C1C15" };
 }

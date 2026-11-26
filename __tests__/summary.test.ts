@@ -43,6 +43,7 @@ function makeTask(overrides: Partial<PlannerTask> = {}): PlannerTask {
     must: false,
     placements: [],
     isBlocked: false,
+    unplacedReason: null,
     ...overrides,
   };
 }
@@ -90,6 +91,7 @@ function makeData(overrides: Partial<WeekViewData> = {}): WeekViewData {
     rejectedKeys: new Set(),
     thisWeekOnlyKeys: new Set(),
     workingDays: MON_TO_FRI,
+    plannedProjectGids: [],
     followingWeekUnplaced: [],
     followingWeekTopRanked: [],
     followingWeekPlannedHours: 0,

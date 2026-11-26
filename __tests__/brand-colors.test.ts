@@ -3,12 +3,12 @@ import { brandColorsFor, officeAccentFor, OFFICES } from "@/lib/brand-colors";
 
 describe("brandColorsFor", () => {
   it("matches a known brand case-insensitively and trimmed", () => {
-    expect(brandColorsFor("  Scotland  ")).toEqual({ label: "Scotland", tint: "#F3F4F9", edge: "#8B90C1" });
-    expect(brandColorsFor("WPT")).toEqual({ label: "WPT", tint: "#F9F5EF", edge: "#BE9E61" });
+    expect(brandColorsFor("  Scotland  ")).toEqual({ label: "Scotland", tint: "#1C2A33", edge: "#5FA3DB" });
+    expect(brandColorsFor("WPT")).toEqual({ label: "WPT", tint: "#2A2233", edge: "#B896E0" });
   });
 
   it("falls back to the dashed no-brand style for null or an unknown value", () => {
-    const noBrand = { label: "No brand", tint: "#F0ECEE", edge: "#828276", dashed: true };
+    const noBrand = { label: "No brand", tint: "#1E2926", edge: "#93A39C", dashed: true };
     expect(brandColorsFor(null)).toEqual(noBrand);
     expect(brandColorsFor("Nonsense")).toEqual(noBrand);
   });
@@ -19,12 +19,12 @@ describe("officeAccentFor", () => {
     for (const office of OFFICES) {
       const result = officeAccentFor(office);
       expect(result).not.toBeNull();
-      expect(result!.onAccent).toBe("#1D1D1D");
+      expect(result!.onAccent).toBe("#0C1C15");
     }
   });
 
   it("matches the brand table's edge colour, case-insensitively", () => {
-    expect(officeAccentFor("scotland")).toEqual({ accent: "#8B90C1", onAccent: "#1D1D1D" });
+    expect(officeAccentFor("scotland")).toEqual({ accent: "#5FA3DB", onAccent: "#0C1C15" });
   });
 
   it("returns null for no selection or an unrecognised value", () => {

@@ -118,7 +118,7 @@ export default async function HygienePage() {
   const { asana, calendar } = await loadSyncStatuses(supabase);
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <h1 className="text-lg font-semibold">Hygiene</h1>
       <p className="mt-1 text-sm text-chalk-dim">
         Data issues on Visual Content Pipeline deliverables only (not completed, not Backlog, not an orphaned
@@ -132,8 +132,8 @@ export default async function HygienePage() {
       </div>
 
       {staleDeliverables.length > 0 && (
-        <div className="mt-4 rounded border border-warning bg-warning-tint p-3">
-          <h2 className="text-sm font-semibold text-chalk">
+        <div className="mt-4 rounded-2xl border border-danger bg-danger-tint p-5">
+          <h2 className="text-sm font-bold text-danger">
             Needs a new date or closing ({staleDeliverables.length})
           </h2>
           <p className="mt-1 text-xs text-chalk-dim">
@@ -156,28 +156,30 @@ export default async function HygienePage() {
         </div>
       )}
 
-      <p className="mt-3 text-sm text-chalk">
+      <p className="mt-4 text-sm font-bold text-chalk">
         {rows.length === 0 ? "No issues found." : `${rows.length} task${rows.length === 1 ? "" : "s"} flagged.`}
       </p>
 
-      <ul className="mt-2 divide-y divide-border">
+      <ul className="mt-2 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-slate">
         {rows.map(([gid, row]) => (
-          <li key={gid} className="py-2 text-sm">
+          <li key={gid} className="px-5 py-3 text-sm">
             <div className="flex items-center justify-between gap-2">
               {row.permalinkUrl ? (
-                <a href={row.permalinkUrl} target="_blank" rel="noreferrer" className="font-medium text-info underline">
+                <a href={row.permalinkUrl} target="_blank" rel="noreferrer" className="font-bold text-chalk hover:text-info">
                   {row.name}
                 </a>
               ) : (
-                <span className="font-medium text-chalk">{row.name}</span>
+                <span className="font-bold text-chalk">{row.name}</span>
               )}
               {row.dueOn && <span className="text-xs text-chalk-dim">due {row.dueOn}</span>}
             </div>
-            <ul className="mt-1 list-inside list-disc text-xs text-chalk-dim">
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
               {row.issues.map((issue, i) => (
-                <li key={i}>{issue}</li>
+                <span key={i} className="rounded-full bg-warning-chip px-2.5 py-0.5 text-[11px] font-bold text-chalk">
+                  {issue}
+                </span>
               ))}
-            </ul>
+            </div>
           </li>
         ))}
       </ul>

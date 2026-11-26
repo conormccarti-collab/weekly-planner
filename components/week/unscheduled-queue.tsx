@@ -69,6 +69,9 @@ export function UnscheduledQueue({
                 {task.priority && <span className="rounded bg-warning-chip px-1.5 py-0.5 text-[10px] font-medium text-chalk">{task.priority}</span>}
                 {task.dueOn && <span className="text-chalk-dim">due {task.dueOn}</span>}
                 <span className="text-chalk-dim">{task.estimateDisplay}</span>
+                {task.unplacedReason && (
+                  <span className="rounded bg-danger-tint px-1.5 py-0.5 text-[10px] font-medium text-danger">{task.unplacedReason}</span>
+                )}
                 {rejectedKeys.has(`${task.source}:${task.reference}`) && (
                   <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-chalk-dim">Rejected — won&apos;t return to that slot</span>
                 )}

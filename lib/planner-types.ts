@@ -23,6 +23,8 @@ export type PlannerTask = {
   placements: Placement[];
   /** v4 Stage 3, brief 6.2: a manually-placed block whose task is still waiting on an unfinished blocker shows a warning on the block. */
   isBlocked: boolean;
+  /** v5 Stage 13a: why the build couldn't place this task, when it has no placements — null when placed, or when the stored reason predates migration 0030. */
+  unplacedReason: string | null;
 };
 
 export type Placement = {

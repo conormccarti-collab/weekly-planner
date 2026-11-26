@@ -43,8 +43,8 @@ export function SchedulingRulesForm({ initial }: { initial: SchedulingRule[] }) 
   }
 
   return (
-    <section className="mt-6 max-w-xl">
-      <h2 className="text-sm font-semibold text-chalk">Scheduling rules</h2>
+    <section className="rounded-2xl border border-border bg-slate p-5">
+      <h2 className="text-sm font-bold text-chalk">Rules &amp; context</h2>
       <p className="mt-1 text-xs text-chalk-dim">
         Standing rules the scheduler follows every week. A rule naming a weekday (optionally one kind of work) is enforced directly by
         Auto-Schedule/Regenerate; anything else is chat-only — the assistant knows it and can flag a conflict, but it won&apos;t change
@@ -53,7 +53,7 @@ export function SchedulingRulesForm({ initial }: { initial: SchedulingRule[] }) 
 
       {error && <p className="mt-2 rounded border border-danger bg-danger-tint px-2 py-1 text-xs text-chalk">{error}</p>}
 
-      <ul className="mt-3 divide-y divide-border rounded-2xl border border-border bg-slate shadow-sm">
+      <ul className="mt-3 divide-y divide-border rounded-xl border border-border bg-raven">
         {rules.length === 0 && <li className="px-3 py-3 text-xs text-chalk-dim">No rules yet.</li>}
         {rules.map((rule) => (
           <li key={rule.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">

@@ -59,7 +59,11 @@ export async function buildChatContext(supabase: SupabaseClient, userId: string)
   // In-app only, per the user's choice: these facts are here so the model
   // can answer if asked ("anything to follow up on?"), never to prompt it
   // to raise them unprompted.
-  const reminders = await loadReminders(supabase, userId, { todayStr: today.dateStr, workingDays: settings.working_days });
+  const reminders = await loadReminders(supabase, userId, {
+    todayStr: today.dateStr,
+    workingDays: settings.working_days,
+    plannedProjectGids: settings.planned_project_gids,
+  });
   const reminderLines: string[] = [];
   if (reminders.checkoffs.length > 0) {
     reminderLines.push(`Pending Asana checkoffs (${reminders.checkoffs.length}):`);
@@ -72,6 +76,10 @@ export async function buildChatContext(supabase: SupabaseClient, userId: string)
         (f) => `  - ${f.containerName} — ${f.subtaskName}: assigned to ${f.assigneeName ?? "someone else"}, due ${f.dueOn}${f.isOverdue ? " (overdue)" : ""}`
       )
     );
+  }
+  if (reminders.newProjects.length > 0) {
+    reminderLines.push(`New projects noticed outside the planned workflow (${reminders.newProjects.length}):`);
+    reminderLines.push(...reminders.newProjects.map((p) => `  - ${p.projectName} — not currently planned, counted, or flagged`));
   }
 
   // Rules window — migration 0027 may not be applied yet, same best-effort

@@ -5,11 +5,11 @@
 }
 
 /*
- * Light palette built from the real Wilderness brand guide
- * (wildernessscotland.com/brand-guidelines) rather than a generic Tailwind
- * scale. Named swatches are quoted in comments so the source is traceable.
- * Every standalone-text and chip-text pairing below was checked with a WCAG
- * contrast calculator (script, not eyeballed) - see the commit message.
+ * v5 Stage 15 facelift: dark theme only for now (light mode is a separate,
+ * later pass) - forest-green/mint on a near-black surface, per the approved
+ * design canvas. Replaces the earlier light palette built from the
+ * Wilderness brand guide; the same token names stay so no component needed
+ * to change.
  *
  * Deliberately NOT `@theme inline` for these: inline bakes the resolved
  * value directly into every generated utility at build time, so a runtime
@@ -19,41 +19,39 @@
  * `var(--color-accent)`, so the cascade can override it per request.
  */
 @theme {
-  --color-raven: #f0ecee; /* page background + recessed surfaces - brand "Chalk" */
-  --color-slate: #ffffff; /* card/panel surfaces - brand "White" */
-  --color-surface-hover: #f3e8d2; /* hover/pressed bg for buttons & rows - brand "Shell" */
-  --color-chalk: #1d1d1d; /* primary text, on raven or slate (16.9:1 / 16.9:1) - brand "Raven" */
-  --color-chalk-dim: #626063; /* secondary text, on raven or slate only (5.9:1 / 6.2:1) - brand "Crag" */
-  --color-border: #828276; /* dividers & outlines (3.7:1 / 3.9:1 on raven/slate) - brand "Dove" */
+  --color-raven: #111816; /* page background + recessed surfaces */
+  --color-slate: #18211e; /* card/panel surfaces */
+  --color-surface-hover: #24302c; /* hover/pressed bg for buttons & rows */
+  --color-chalk: #edf2ef; /* primary text, on raven or slate */
+  --color-chalk-dim: #93a39c; /* secondary text, on raven or slate only */
+  --color-border: #2b3733; /* dividers & outlines */
 
-  /* App accent - default is Wilderness Scotland's brand colour; the Settings
-     Office picker overrides this per-office with the same six brand hues. */
-  --color-accent: #8b90c1; /* brand "Thistle" */
-  --color-on-accent: #1d1d1d; /* brand "Raven" - 5.5:1 on Thistle, same pairing officeAccentFor already uses */
+  /* App accent - default is the facelift's mint/forest green; the Settings
+     Office picker overrides this per-office with the brand hues in lib/brand-colors.ts. */
+  --color-accent: #7ccba0;
+  --color-on-accent: #0c1c15;
 
-  /* Status colors: standalone text on raven/slate, all brand swatches except
-     warning (Ochre #BE9E61 only reads 2.5:1 on white - darkened 33% toward
-     Raven to clear 4.5:1 while staying in the same gold family). */
-  --color-danger: #9e1f37; /* brand "Hawthorn" - 7.8:1 */
-  --color-success: #13592a; /* brand "Yew" - 8.4:1 */
-  --color-warning: #89734b; /* darkened brand "Ochre" - 4.6:1 */
-  --color-info: #2379aa; /* brand "Current" - 4.8:1 */
+  /* Status colors: standalone text on raven/slate. */
+  --color-danger: #f27d7d;
+  --color-success: #6fcb98;
+  --color-warning: #e8a33d;
+  --color-info: #6fa8dc;
 
   /* Status callout boxes: tinted bg + solid border + chalk body text (never chalk-dim inside) */
-  --color-danger-tint: #f5e9eb;
-  --color-success-tint: #e7eeea;
-  --color-warning-tint: #f3f1ed;
-  --color-info-tint: #e9f2f7;
+  --color-danger-tint: #3a1f1f;
+  --color-success-tint: #1c2e22;
+  --color-warning-tint: #2e2614;
+  --color-info-tint: #1c2a33;
 
   /* Status chip badges: bright bg + chalk text */
-  --color-danger-chip: #daaab3;
-  --color-success-chip: #a5c0ae;
-  --color-warning-chip: #d2cabb;
-  --color-info-chip: #abccdf;
+  --color-danger-chip: #5a2e2e;
+  --color-success-chip: #2a4a38;
+  --color-warning-chip: #4a3d22;
+  --color-info-chip: #2a4254;
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 /*

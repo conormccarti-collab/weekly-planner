@@ -5,6 +5,8 @@ import { detectStage } from "./stage";
 import { PRODUCTION_SHOOTS_PROJECT_GID } from "./projects";
 import type { AsanaTask } from "./types";
 import { env } from "@/lib/env";
+import { loadSettings } from "@/lib/settings-data";
+import { createNewProjectReminder } from "@/lib/reminders";
 
 const MAX_SUBTASK_DEPTH = 3;
 const COMPLETED_LOOKBACK_DAYS = 14;
@@ -337,6 +339,11 @@ export async function runAsanaSync(supabase: SupabaseClient, userId: string) {
       t.project_gids.forEach((gid, i) => projectRows.set(gid, { gid, name: t.project_names[i] }));
     }
     if (projectRows.size > 0) {
+      // Captured before the upsert below, so "new" means genuinely never
+      // seen for this user — not just missing from this particular sync run.
+      const { data: existingProjectRows } = await supabase.from("asana_projects").select("gid").eq("user_id", userId);
+      const existingProjectGids = new Set((existingProjectRows ?? []).map((p) => p.gid as string));
+
       const { error: projectError } = await supabase.from("asana_projects").upsert(
         Array.from(projectRows.values()).map((p) => ({
           gid: p.gid,
@@ -347,6 +354,21 @@ export async function runAsanaSync(supabase: SupabaseClient, userId: string) {
         { onConflict: "gid", ignoreDuplicates: false }
       );
       if (projectError) throw new Error(projectError.message);
+
+      // Nudge once per genuinely new project outside the planned workflow,
+      // rather than letting it sit unnoticed in "Outside the workflow" —
+      // Conor's own concern about the eligibility gate. Compared against the
+      // raw project-gid set every synced task carries, not the stricter
+      // root-task eligibility test in lib/asana/eligibility.ts — a false
+      // positive here just costs a dismiss click.
+      const newProjectGids = [...projectRows.keys()].filter((gid) => !existingProjectGids.has(gid));
+      if (newProjectGids.length > 0) {
+        const settings = await loadSettings(supabase, userId);
+        for (const gid of newProjectGids) {
+          if (settings.planned_project_gids.includes(gid)) continue;
+          await createNewProjectReminder(supabase, userId, gid);
+        }
+      }
     }
 
     if (assignedGids.size > 0) {

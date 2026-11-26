@@ -34,8 +34,8 @@ export function EstimateDefaultsForm({ initial }: { initial: EstimateDefaultRow[
   }
 
   return (
-    <section className="mt-6 max-w-xl">
-      <h2 className="text-sm font-semibold text-chalk">Estimate defaults</h2>
+    <section className="rounded-2xl border border-border bg-slate p-5">
+      <h2 className="text-sm font-bold text-chalk">Estimate defaults</h2>
       <p className="mt-1 text-xs text-chalk-dim">
         Default hours used when a task has no estimate of its own and none learned from past entries. Every change is logged.
       </p>

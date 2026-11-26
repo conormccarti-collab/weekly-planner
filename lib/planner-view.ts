@@ -51,6 +51,7 @@ export function toPersonalPlannerTask(task: PersonalTaskRow, must: boolean, plac
     must,
     placements,
     isBlocked: false,
+    unplacedReason: null,
   };
 }
 
@@ -91,5 +92,6 @@ export function toPlannerTask(
     must,
     placements,
     isBlocked,
+    unplacedReason: null,
   };
 }

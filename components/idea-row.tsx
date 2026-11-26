@@ -15,7 +15,7 @@ export function IdeaRow({ idea }: { idea: IdeaRowData }) {
 
   if (idea.status !== "open") {
     return (
-      <li className="flex items-center justify-between py-1.5 text-sm text-chalk-dim">
+      <li className="flex items-center justify-between px-5 py-2.5 text-sm text-chalk-dim">
         <span>
           {idea.title} <span className="text-xs">({idea.status})</span>
         </span>
@@ -26,7 +26,7 @@ export function IdeaRow({ idea }: { idea: IdeaRowData }) {
 
   if (converting) {
     return (
-      <li className="space-y-1 rounded border border-info bg-info-tint p-2 text-sm text-chalk">
+      <li className="space-y-1 rounded border border-info bg-info-tint p-2 text-sm text-chalk mx-2 my-1">
         <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded border border-border bg-slate px-1 py-0.5 text-chalk" />
         <div className="flex flex-wrap gap-1">
           <input
@@ -71,17 +71,19 @@ export function IdeaRow({ idea }: { idea: IdeaRowData }) {
   }
 
   return (
-    <li className="flex items-center justify-between gap-2 py-1.5 text-sm">
-      <span>{idea.title}</span>
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-chalk-dim">{idea.createdAt}</span>
-        <button onClick={() => setConverting(true)} className="text-info underline">
-          Turn into task
+    <li className="flex items-center justify-between gap-2 px-5 py-2.5 text-sm hover:bg-surface-hover">
+      <div>
+        <span className="font-bold text-chalk">{idea.title}</span>
+        <div className="text-xs text-chalk-dim">Captured {idea.createdAt}</div>
+      </div>
+      <div className="flex flex-none items-center gap-2 text-xs">
+        <button onClick={() => setConverting(true)} className="rounded-lg bg-accent px-3 py-1.5 font-bold text-on-accent">
+          Make a task
         </button>
         <button
           disabled={pending}
           onClick={() => startTransition(() => dropIdea(idea.id))}
-          className="text-chalk-dim underline hover:text-danger"
+          className="rounded-lg border border-border px-3 py-1.5 font-bold text-chalk hover:border-danger hover:text-danger"
         >
           Drop
         </button>

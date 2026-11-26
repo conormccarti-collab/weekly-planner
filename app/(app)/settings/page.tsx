@@ -65,48 +65,46 @@ export default async function SettingsPage() {
   const sentryConfigured = !!process.env.SENTRY_DSN;
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <h1 className="text-lg font-semibold">Settings</h1>
       <p className="mt-1 text-sm text-chalk-dim">Working pattern used to compute capacity.</p>
 
-      <section className="mt-6 max-w-xl">
-        <h2 className="text-sm font-semibold text-chalk">Connections</h2>
-        <div className="mt-2 flex items-center justify-between rounded border border-border px-3 py-2 text-sm">
-          <span>Google Calendar</span>
-          {calendarNeedsReconnect ? (
-            <div className="flex items-center gap-2">
-              <span className="text-danger">Needs reconnecting</span>
-              <ReconnectCalendarButton />
-            </div>
-          ) : (
-            <span className="text-chalk-dim">Connected</span>
-          )}
-        </div>
-        <div className="mt-2 flex items-center justify-between rounded border border-border px-3 py-2 text-sm">
-          <span>Asana</span>
-          <span className="text-chalk-dim">Connected (server token)</span>
-        </div>
-      </section>
+      <div className="mt-6 space-y-4">
+        <section className="rounded-2xl border border-border bg-slate p-5">
+          <h2 className="text-sm font-bold text-chalk">Connections</h2>
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-border bg-raven px-3 py-2 text-sm">
+            <span>Google Calendar</span>
+            {calendarNeedsReconnect ? (
+              <div className="flex items-center gap-2">
+                <span className="text-danger">Needs reconnecting</span>
+                <ReconnectCalendarButton />
+              </div>
+            ) : (
+              <span className="text-chalk-dim">Connected</span>
+            )}
+          </div>
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-border bg-raven px-3 py-2 text-sm">
+            <span>Asana</span>
+            <span className="text-chalk-dim">Connected (server token)</span>
+          </div>
+        </section>
 
-      <section className="mt-6 max-w-xl">
-        <h2 className="text-sm font-semibold text-chalk">Problems</h2>
-        <div className="mt-2 flex items-center justify-between rounded border border-border px-3 py-2 text-sm">
-          <span>Sync failures (last 7 days)</span>
-          <span className={recentSyncFailures > 0 ? "text-danger" : "text-chalk-dim"}>{recentSyncFailures}</span>
-        </div>
-        <div className="mt-2 flex items-center justify-between rounded border border-border px-3 py-2 text-sm">
-          <span>Error logging</span>
-          <span className="text-chalk-dim">{sentryConfigured ? "Sentry configured" : "Sentry not configured (SENTRY_DSN unset)"}</span>
-        </div>
-      </section>
+        <section className="rounded-2xl border border-border bg-slate p-5">
+          <h2 className="text-sm font-bold text-chalk">Problems</h2>
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-border bg-raven px-3 py-2 text-sm">
+            <span>Sync failures (last 7 days)</span>
+            <span className={recentSyncFailures > 0 ? "text-danger" : "text-chalk-dim"}>{recentSyncFailures}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-border bg-raven px-3 py-2 text-sm">
+            <span>Error logging</span>
+            <span className="text-chalk-dim">{sentryConfigured ? "Sentry configured" : "Sentry not configured (SENTRY_DSN unset)"}</span>
+          </div>
+        </section>
 
-      <div className="mt-6">
         <SettingsForm initial={initial} knownProjects={knownProjects} />
+        <SchedulingRulesForm initial={schedulingRules} />
+        <EstimateDefaultsForm initial={estimateDefaults} />
       </div>
-
-      <SchedulingRulesForm initial={schedulingRules} />
-
-      <EstimateDefaultsForm initial={estimateDefaults} />
     </div>
   );
 }

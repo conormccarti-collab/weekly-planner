@@ -49,6 +49,8 @@ export type WeekViewData = {
   thisWeekOnlyKeys: Set<string>;
   /** v3 (plan-first) stage 4: for the summary panel's deadline-within-N-working-days check. */
   workingDays: Weekday[];
+  /** For auto-resolving a "new project outside the workflow" reminder once it's added here. */
+  plannedProjectGids: string[];
   /** v4 Stage 2, brief 5.6: hygiene flags on this week's deliverables, for the summary panel. */
   weekHygieneIssues: string[];
   /** v4 Stage 4b, brief 7.4.7: deliverable stages whose back-scheduled latest start falls this week or has passed. */
@@ -280,6 +282,10 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
   for (const item of [...plan.placed, ...plan.unplaced, ...followingPlan.placed, ...followingPlan.unplaced]) {
     mustByKey.set(`${item.source}:${item.reference}`, item.must);
   }
+  const unplacedReasonByKey = new Map<string, string | null>();
+  for (const item of plan.unplaced) {
+    unplacedReasonByKey.set(`${item.source}:${item.reference}`, item.reason);
+  }
   const planKeys = new Set<string>([
     ...placementsByKey.keys(),
     ...plan.unplaced.map((u) => `${u.source}:${u.reference}`),
@@ -371,6 +377,11 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
         )
       ),
   ].sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999") || a.name.localeCompare(b.name));
+  for (const task of thisWeekTasks) {
+    if (task.placements.length === 0) {
+      task.unplacedReason = unplacedReasonByKey.get(`${task.source}:${task.reference}`) ?? null;
+    }
+  }
 
   // v4 Stage 2, brief section 5.6: "hygiene problems on this week's
   // deliverables" — same checks as the Hygiene screen, scoped to the
@@ -565,6 +576,7 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
     rejectedKeys,
     thisWeekOnlyKeys,
     workingDays: settings.working_days,
+    plannedProjectGids: settings.planned_project_gids,
     weekHygieneIssues,
     startsThisWeek,
     followingWeekUnplaced,

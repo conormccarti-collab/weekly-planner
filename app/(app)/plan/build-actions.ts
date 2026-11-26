@@ -66,7 +66,8 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
     inputs.weekCapacityHours,
     inputs.completedByGid,
     inputs.avoidSlotByKey,
-    inputs.dayExcludedForCandidate
+    inputs.dayExcludedForCandidate,
+    inputs.minSplitPartMinutes
   );
 
   const rowsToInsert: Record<string, unknown>[] = [];
@@ -86,7 +87,7 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
   for (const m of result.movedToNextWeek) {
     rowsToInsert.push({ source: m.source, reference: m.reference, day: null, hours: null, must: false, status: "moved", pinned: false });
   }
-  for (const u of [...result.stillUnplaced, ...inputs.needsEstimatePick]) {
+  for (const u of result.stillUnplaced) {
     rowsToInsert.push({
       source: u.source,
       reference: u.reference,
@@ -95,6 +96,19 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
       must: inputs.mustByKey.get(`${u.source}:${u.reference}`) ?? false,
       status: "planned",
       pinned: false,
+      reason: u.reason,
+    });
+  }
+  for (const u of inputs.needsEstimatePick) {
+    rowsToInsert.push({
+      source: u.source,
+      reference: u.reference,
+      day: null,
+      hours: null,
+      must: inputs.mustByKey.get(`${u.source}:${u.reference}`) ?? false,
+      status: "planned",
+      pinned: false,
+      reason: "Needs an estimate",
     });
   }
 

@@ -1,8 +1,13 @@
 # End-to-end tests (Playwright)
 
 Signed-in session: a saved `storageState` at `__tests__/e2e/.auth/storage-state.json`
-(gitignored), referenced by `playwright.config.ts`. Regenerate it by signing
-in once by hand against a real run of the app and exporting that session.
+(gitignored), referenced by `playwright.config.ts`. Regenerate it locally with
+`node scripts/e2e-login.mjs` (needs `ALLOWED_EMAIL` in `.env.local` alongside
+the existing Supabase vars) — it mints a real session non-interactively via
+the same magic-link mechanism a real sign-in uses, no manual browser step
+needed. CI runs this same script on every push to the `e2e` job (gated behind
+the `E2E_READY` repo variable, off by default) using an `ALLOWED_EMAIL` repo
+secret — add that secret and flip `E2E_READY` to `'true'` to turn CI e2e on.
 
 Every spec here runs against the **dev Supabase project**, never the real
 production one, using disposable fixtures from `fixtures.ts`

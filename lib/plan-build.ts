@@ -97,7 +97,9 @@ export function buildWeekPlan(
   weekCapacityHours: number,
   completedByGid: Map<string, boolean>,
   avoidSlotByKey?: Map<string, AvoidSlot>,
-  dayExcludedForCandidate?: (candidate: AutoPlaceCandidate, day: string) => boolean
+  dayExcludedForCandidate?: (candidate: AutoPlaceCandidate, day: string) => boolean,
+  /** v5 Stage 13b: the user's min_split_part_minutes setting — defaults to proposeAutoPlacement's own 60 when not given, same as before this param existed. */
+  minPartMinutes?: number
 ): BuildResult {
   const stillUnplaced: BuildResult["stillUnplaced"] = [];
   const eligible: BuildCandidate[] = [];
@@ -119,7 +121,7 @@ export function buildWeekPlan(
   const moveKeys = new Set(overCapacity.toMove.map(keyOf));
   const toPlace = ordered.filter((c) => !moveKeys.has(keyOf(c)));
 
-  const { placements, unplaced } = proposeAutoPlacement(toPlace, freeBlocksByDay, dayOrder, avoidSlotByKey, undefined, dayExcludedForCandidate);
+  const { placements, unplaced } = proposeAutoPlacement(toPlace, freeBlocksByDay, dayOrder, avoidSlotByKey, minPartMinutes, dayExcludedForCandidate);
 
   const suggestedByKey = new Map(candidates.map((c) => [keyOf(c), c.isSuggested]));
   const finalPlacements = placements.map((p) => ({ ...p, isSuggested: suggestedByKey.get(keyOf(p)) ?? false }));

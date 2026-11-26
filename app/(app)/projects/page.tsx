@@ -47,17 +47,17 @@ export default async function ProjectsPage() {
   const { asana, calendar } = await loadSyncStatuses(supabase);
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <h1 className="text-lg font-semibold">Projects</h1>
       <p className="mt-1 text-sm text-chalk-dim">One page per project: its tasks, planned hours this week, and notes.</p>
       <div className="mt-3">
         <SyncBar asana={asana} calendar={calendar} />
       </div>
-      <ul className="mt-4 divide-y divide-border">
-        {projects.length === 0 && <p className="py-2 text-sm text-chalk-dim">No projects yet.</p>}
+      <ul className="mt-4 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-slate">
+        {projects.length === 0 && <p className="px-5 py-3 text-sm text-chalk-dim">No projects yet.</p>}
         {projects.map(([gid, { name, count }]) => (
-          <li key={gid} className="flex items-center justify-between py-2 text-sm">
-            <Link href={`/projects/${gid}`} className="text-info underline">
+          <li key={gid} className="flex items-center justify-between px-5 py-3 text-sm hover:bg-surface-hover">
+            <Link href={`/projects/${gid}`} className="font-bold text-chalk">
               {name}
             </Link>
             <span className="text-xs text-chalk-dim">{count} task{count === 1 ? "" : "s"}</span>
@@ -66,7 +66,7 @@ export default async function ProjectsPage() {
       </ul>
 
       {outsideWorkflow.length > 0 && (
-        <details className="mt-6 rounded border border-border p-3 text-sm">
+        <details className="mt-4 rounded-2xl border border-border bg-slate p-4 text-sm">
           <summary className="cursor-pointer font-medium text-chalk">
             Outside the workflow ({outsideWorkflow.length})
           </summary>

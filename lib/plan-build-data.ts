@@ -51,6 +51,8 @@ export type WeekBuildInputs = {
   avoidSlotByKey: Map<string, { day: string; startMinutes: number }>;
   /** Rules window: a structured `avoid_weekday` scheduling rule, resolved to plain day strings for lib/auto-placement.ts. Undefined when there are no such rules. */
   dayExcludedForCandidate?: (candidate: AutoPlaceCandidate, day: string) => boolean;
+  /** v5 Stage 13b: the user's own minimum-split-part setting — previously only honoured for manual drag/reprioritise, ignored by the main build. */
+  minSplitPartMinutes: number;
 };
 
 /**
@@ -466,5 +468,6 @@ export async function gatherWeekBuildInputs(
     staleItems,
     avoidSlotByKey,
     dayExcludedForCandidate,
+    minSplitPartMinutes: settings.min_split_part_minutes,
   };
 }

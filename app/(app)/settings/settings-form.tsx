@@ -32,9 +32,9 @@ export function SettingsForm({
     // a Server Action submits. Keying on `initial` forces a remount with
     // the freshly-saved values once revalidation brings them back, instead
     // of silently snapping every field back to what it was before the save.
-    <form key={JSON.stringify(initial)} action={formAction} className="max-w-xl space-y-6">
-      <section>
-        <h2 className="text-sm font-semibold text-chalk">Working days, start &amp; lunch times</h2>
+    <form key={JSON.stringify(initial)} action={formAction} className="space-y-4">
+      <section className="rounded-2xl border border-border bg-slate p-5">
+        <h2 className="text-sm font-bold text-chalk">Working days, start &amp; lunch times</h2>
         <div className="mt-3 space-y-2">
           <div className="flex items-center gap-3 text-xs font-medium text-chalk-dim">
             <span className="w-7" />
@@ -82,7 +82,7 @@ export function SettingsForm({
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-4">
+      <section className="grid grid-cols-2 gap-4 rounded-2xl border border-border bg-slate p-5">
         <Field label="Hours per working day">
           <input
             type="number"
@@ -147,9 +147,9 @@ export function SettingsForm({
           </select>
         </Field>
       </section>
-      <p className="-mt-4 text-xs text-chalk-dim">Sets the app&apos;s accent colour only — it never changes per-task Brand colours on the calendar.</p>
+      <p className="-mt-2 px-1 text-xs text-chalk-dim">Sets the app&apos;s accent colour only — it never changes per-task Brand colours on the calendar.</p>
 
-      <section>
+      <section className="rounded-2xl border border-border bg-slate p-5">
         <label className="flex items-center gap-2 text-sm text-chalk">
           <input
             type="checkbox"
@@ -207,8 +207,8 @@ export function SettingsForm({
         </div>
       </section>
 
-      <section>
-        <h2 className="text-sm font-semibold text-chalk">Planned projects</h2>
+      <section className="rounded-2xl border border-border bg-slate p-5">
+        <h2 className="text-sm font-bold text-chalk">Planned projects</h2>
         <p className="mt-1 text-xs text-chalk-dim">
           Only tasks in these projects are ever placed, counted or flagged. Everything else assigned to you shows,
           read-only, as &quot;Outside the workflow&quot; on the Projects page.
@@ -229,7 +229,7 @@ export function SettingsForm({
         </div>
       </section>
 
-      <section>
+      <section className="rounded-2xl border border-border bg-slate p-5">
         <label className="flex items-center gap-2 text-sm text-chalk">
           <input type="checkbox" name="notifications_enabled" defaultChecked={initial.notifications_enabled} className="h-4 w-4" />
           Email me a morning summary on working days

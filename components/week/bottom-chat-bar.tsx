@@ -224,16 +224,18 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
 
   if (collapsed) {
     return (
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-slate px-4 py-2">
-        <button onClick={() => setCollapsed(false)} className="text-xs font-medium text-chalk hover:text-info">
-          Chat — expand
+      <div className="flex w-10 flex-none flex-col items-center rounded-2xl border border-border bg-slate py-3">
+        <button onClick={() => setCollapsed(false)} title="Expand chat" className="text-chalk-dim hover:text-chalk">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
         </button>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 flex max-h-[60vh] flex-col border-t border-border bg-slate shadow-[0_-4px_12px_rgba(0,0,0,0.25)]">
+    <div className="flex h-[calc(100vh-7.5rem)] w-[340px] flex-none sticky top-20 flex-col rounded-2xl border border-border bg-slate">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
         <span className="text-xs font-semibold text-chalk">Chat</span>
         <div className="flex items-center gap-3">

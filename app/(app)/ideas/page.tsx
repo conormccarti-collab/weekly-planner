@@ -27,22 +27,22 @@ export default async function IdeasPage() {
   const resolved = ideas.filter((i) => i.status !== "open");
 
   return (
-    <div>
+    <div className="mx-auto max-w-3xl">
       <h1 className="text-lg font-semibold">Ideas</h1>
       <p className="mt-1 text-sm text-chalk-dim">
         Capture ideas here or via chat (&quot;Idea: ...&quot;). Each one can be turned into a personal task or dropped.
       </p>
 
-      <ul className="mt-4 divide-y divide-border">
-        {open.length === 0 && <p className="py-2 text-sm text-chalk-dim">No open ideas.</p>}
+      <ul className="mt-4 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-slate">
+        {open.length === 0 && <p className="px-5 py-3 text-sm text-chalk-dim">No open ideas.</p>}
         {open.map((idea) => (
           <IdeaRow key={idea.id} idea={idea} />
         ))}
       </ul>
 
       {resolved.length > 0 && (
-        <details className="mt-6">
-          <summary className="cursor-pointer text-sm font-medium text-chalk">
+        <details className="mt-4 rounded-2xl border border-border bg-slate p-4 text-sm">
+          <summary className="cursor-pointer font-medium text-chalk">
             Converted / dropped ({resolved.length})
           </summary>
           <ul className="mt-2 divide-y divide-border">

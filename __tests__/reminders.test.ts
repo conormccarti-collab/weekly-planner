@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCheckoffReminder, retractCheckoffReminder, isCheckoffStillPending, mostFrequentValue } from "@/lib/reminders";
+import {
+  createCheckoffReminder,
+  retractCheckoffReminder,
+  createNewProjectReminder,
+  isCheckoffStillPending,
+  isNewProjectReminderStillPending,
+  mostFrequentValue,
+} from "@/lib/reminders";
 import { addWorkingDays } from "@/lib/time";
 
 describe("isCheckoffStillPending", () => {
@@ -35,6 +42,30 @@ describe("createCheckoffReminder / retractCheckoffReminder", () => {
 
     expect(upsert).toHaveBeenCalledWith(
       { user_id: "user-1", kind: "asana_checkoff", reference: "gid-1", dismissed_at: null },
+      { onConflict: "user_id,kind,reference" }
+    );
+  });
+});
+
+describe("isNewProjectReminderStillPending", () => {
+  it("auto-resolves once the project is added to planned_project_gids", () => {
+    expect(isNewProjectReminderStillPending("gid-1", ["gid-1", "gid-2"])).toBe(false);
+  });
+
+  it("stays pending while the project is still outside the workflow", () => {
+    expect(isNewProjectReminderStillPending("gid-3", ["gid-1", "gid-2"])).toBe(true);
+  });
+});
+
+describe("createNewProjectReminder", () => {
+  it("upserts on the (user_id, kind, reference) constraint, reference being the project gid", async () => {
+    const upsert = vi.fn(() => Promise.resolve({ data: null, error: null }));
+    const supabase = { from: vi.fn(() => ({ upsert })) } as never;
+
+    await createNewProjectReminder(supabase, "user-1", "project-gid-1");
+
+    expect(upsert).toHaveBeenCalledWith(
+      { user_id: "user-1", kind: "new_outside_project", reference: "project-gid-1", dismissed_at: null },
       { onConflict: "user_id,kind,reference" }
     );
   });
