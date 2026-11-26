@@ -5,7 +5,11 @@ import {
   createNewProjectReminder,
   isCheckoffStillPending,
   isNewProjectReminderStillPending,
+  isEstimateStillUnconfirmed,
+  isStaleFiller,
   mostFrequentValue,
+  UNCONFIRMED_ESTIMATE_NUDGE_DAYS,
+  STALE_FILLER_MIN_DAYS_OUT,
 } from "@/lib/reminders";
 import { addWorkingDays } from "@/lib/time";
 
@@ -86,5 +90,33 @@ describe("reminders reuse the same 2-working-day deadline window as 'at risk'", 
   it("matches lib/summary.ts's deadlineCutoff computation", () => {
     const workingDays: import("@/lib/time").Weekday[] = ["mon", "tue", "wed", "thu", "fri"];
     expect(addWorkingDays("2026-11-25", 2, workingDays)).toBe("2026-11-27");
+  });
+});
+
+describe("isEstimateStillUnconfirmed", () => {
+  it("ignores a confirmed (user-set) estimate regardless of age", () => {
+    expect(isEstimateStillUnconfirmed("user", "2020-01-01T00:00:00Z", "2026-11-26")).toBe(false);
+  });
+
+  it("doesn't nag about a guess made today or yesterday", () => {
+    expect(isEstimateStillUnconfirmed("suggested", "2026-11-26T00:00:00Z", "2026-11-26")).toBe(false);
+  });
+
+  it(`flags a suggested estimate ${UNCONFIRMED_ESTIMATE_NUDGE_DAYS}+ real days old`, () => {
+    expect(isEstimateStillUnconfirmed("suggested", "2026-11-24T00:00:00Z", "2026-11-26")).toBe(true);
+  });
+});
+
+describe("isStaleFiller", () => {
+  it("flags a task with no due date at all", () => {
+    expect(isStaleFiller(null, "2026-11-26")).toBe(true);
+  });
+
+  it(`flags a due date more than ${STALE_FILLER_MIN_DAYS_OUT} days out — the real Tartan Design B2B case (due 2027-01-04 while sitting on a late-November weekend)`, () => {
+    expect(isStaleFiller("2027-01-04", "2026-11-26")).toBe(true);
+  });
+
+  it("does not flag a due date within the window", () => {
+    expect(isStaleFiller("2026-12-03", "2026-11-26")).toBe(false);
   });
 });

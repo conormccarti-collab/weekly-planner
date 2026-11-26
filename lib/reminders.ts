@@ -25,12 +25,17 @@ export type UnconfirmedEstimateReminder = {
   focusType: string | null;
   videoType: string | null;
 };
+export type StaleFillerReminder = { source: Source; reference: string; name: string; dueOn: string | null };
 export type RemindersData = {
   checkoffs: CheckoffReminder[];
   followUps: FollowUpReminder[];
   newProjects: NewProjectReminder[];
   unconfirmedEstimates: UnconfirmedEstimateReminder[];
+  staleFiller: StaleFillerReminder[];
 };
+
+/** How far out a due date (or no due date at all) still counts as "no real deadline pressing on this yet." */
+export const STALE_FILLER_MIN_DAYS_OUT = 21;
 
 /** Auto-resolve: nothing left to check off once the Asana task is completed, or gone. */
 export function isCheckoffStillPending(task: { completed: boolean } | null | undefined): boolean {
@@ -56,6 +61,19 @@ export function isEstimateStillUnconfirmed(estimateOrigin: string, updatedAtIso:
   if (estimateOrigin !== "suggested") return false;
   const updatedDateStr = updatedAtIso.slice(0, 10);
   return daysBetweenDateStrs(updatedDateStr, todayStr) >= UNCONFIRMED_ESTIMATE_NUDGE_DAYS;
+}
+
+/**
+ * "If it's not due soon then why is it even there?" — the exact question
+ * that uncovered a real bug tonight (an unpinned, month-out deliverable
+ * silently capping an explicitly-requested weekend request). A task with
+ * no due date at all, or one far enough out that nothing about this week
+ * depends on it, is a reasonable park candidate even when nothing's
+ * currently forcing it off the calendar.
+ */
+export function isStaleFiller(dueOn: string | null, todayStr: string): boolean {
+  if (dueOn == null) return true;
+  return daysBetweenDateStrs(todayStr, dueOn) > STALE_FILLER_MIN_DAYS_OUT;
 }
 
 /** The most common value in the list, or undefined if it's empty. Ties keep whichever is seen first. */
@@ -275,5 +293,48 @@ export async function loadReminders(
     }
   }
 
-  return { checkoffs, followUps, newProjects, unconfirmedEstimates };
+  // Every currently-placed task, so a filler candidate is only ever one
+  // that's actually sitting on the calendar right now, and so a Must flag
+  // (stored per-placement, not on the task itself) can exclude it — a
+  // task can be explicitly important despite having no hard due date.
+  const { data: placedRows } = await supabase
+    .from("plan_items")
+    .select("source, reference, must")
+    .eq("user_id", userId)
+    .not("day", "is", null)
+    .in("status", ["planned", "suggested"]);
+  const placedAsanaGids = [...new Set((placedRows ?? []).filter((r) => r.source === "asana" && !r.must).map((r) => r.reference as string))];
+  const placedPersonalIds = [...new Set((placedRows ?? []).filter((r) => r.source === "personal" && !r.must).map((r) => r.reference as string))];
+
+  const staleFiller: StaleFillerReminder[] = [];
+  if (placedAsanaGids.length > 0) {
+    const { data: asanaRows } = await supabase.from("asana_tasks").select("gid, name, parent_name, parent_gid, due_on").in("gid", placedAsanaGids);
+    const rows = asanaRows ?? [];
+    const parentGids = [...new Set(rows.map((r) => r.parent_gid as string | null).filter((g): g is string => g != null))];
+    const { data: parentRows } =
+      parentGids.length > 0 ? await supabase.from("asana_tasks").select("gid, due_on").in("gid", parentGids) : { data: [] };
+    const parentDueOnByGid = new Map((parentRows ?? []).map((p) => [p.gid as string, p.due_on as string | null]));
+    for (const t of rows) {
+      // The subtask's own due date if it has one, else its deliverable's —
+      // a subtask with no due date of its own but a deliverable due next
+      // week is real near-term work, not filler.
+      const effectiveDueOn = (t.due_on as string | null) ?? (t.parent_gid ? (parentDueOnByGid.get(t.parent_gid as string) ?? null) : null);
+      if (!isStaleFiller(effectiveDueOn, opts.todayStr)) continue;
+      staleFiller.push({
+        source: "asana",
+        reference: t.gid as string,
+        name: t.parent_name ? `${t.parent_name} — ${t.name}` : (t.name as string),
+        dueOn: effectiveDueOn,
+      });
+    }
+  }
+  if (placedPersonalIds.length > 0) {
+    const { data: personalRows } = await supabase.from("personal_tasks").select("id, name, due_on").in("id", placedPersonalIds);
+    for (const t of personalRows ?? []) {
+      if (!isStaleFiller(t.due_on as string | null, opts.todayStr)) continue;
+      staleFiller.push({ source: "personal", reference: t.id as string, name: t.name as string, dueOn: t.due_on as string | null });
+    }
+  }
+
+  return { checkoffs, followUps, newProjects, unconfirmedEstimates, staleFiller };
 }

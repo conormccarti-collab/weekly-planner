@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { addPlannedProject, dismissReminder } from "@/app/(app)/reminders/actions";
-import { setTaskEstimate } from "@/app/(app)/tasks/actions";
+import { setTaskEstimate, setParked } from "@/app/(app)/tasks/actions";
 import type { RemindersData } from "@/lib/reminders";
 
 /**
@@ -24,6 +24,15 @@ import type { RemindersData } from "@/lib/reminders";
  * surfaced days later. Resolved the moment it's confirmed or corrected
  * (setTaskEstimate always writes estimate_origin: "user"), no separate
  * dismissal needed.
+ *
+ * Stale-filler reminders: something currently occupying real calendar
+ * space with no due date, or one weeks out — "if it's not due soon then
+ * why is it even there?", the live question that uncovered tonight's
+ * obstacle-predicate bug. Parking it (same action as the Projects page's
+ * own Park control) removes it from planning entirely; "Leave it" just
+ * hides this card's copy for now; both resolve once re-surfaced by the
+ * next load (parked tasks stop being placed at all, so they stop
+ * qualifying here on their own).
  */
 export function RemindersList({ data }: { data: RemindersData }) {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
@@ -31,12 +40,14 @@ export function RemindersList({ data }: { data: RemindersData }) {
   const [confirmedKeys, setConfirmedKeys] = useState<Set<string>>(new Set());
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editHours, setEditHours] = useState("");
+  const [handledFillerKeys, setHandledFillerKeys] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
 
   const newProjects = data.newProjects.filter((p) => !dismissedIds.has(p.id) && !addedGids.has(p.projectGid));
   const unconfirmedEstimates = data.unconfirmedEstimates.filter((e) => !confirmedKeys.has(`${e.source}:${e.reference}`));
+  const staleFiller = data.staleFiller.filter((s) => !handledFillerKeys.has(`${s.source}:${s.reference}`));
 
-  if (data.followUps.length === 0 && newProjects.length === 0 && unconfirmedEstimates.length === 0) return null;
+  if (data.followUps.length === 0 && newProjects.length === 0 && unconfirmedEstimates.length === 0 && staleFiller.length === 0) return null;
 
   function dismiss(id: string) {
     setDismissedIds((prev) => new Set(prev).add(id));
@@ -58,6 +69,17 @@ export function RemindersList({ data }: { data: RemindersData }) {
     startTransition(async () => {
       await setTaskEstimate(e.source, e.reference, hours, { stage: e.stage, focusType: e.focusType, videoType: e.videoType });
     });
+  }
+
+  function parkFiller(s: RemindersData["staleFiller"][number]) {
+    setHandledFillerKeys((prev) => new Set(prev).add(`${s.source}:${s.reference}`));
+    startTransition(async () => {
+      await setParked(s.source, s.reference, true);
+    });
+  }
+
+  function leaveFiller(s: RemindersData["staleFiller"][number]) {
+    setHandledFillerKeys((prev) => new Set(prev).add(`${s.source}:${s.reference}`));
   }
 
   return (
@@ -160,6 +182,35 @@ export function RemindersList({ data }: { data: RemindersData }) {
                       </span>
                     </>
                   )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      {staleFiller.length > 0 && (
+        <div className="mt-2">
+          <p className="font-medium text-chalk">Sitting with no real deadline</p>
+          <ul className="mt-1 space-y-1.5 text-xs">
+            {staleFiller.map((s) => {
+              const key = `${s.source}:${s.reference}`;
+              return (
+                <li key={key} className="flex items-center justify-between gap-2">
+                  <span>
+                    {s.name} <span className="text-chalk-dim">— {s.dueOn ? `due ${s.dueOn}` : "no due date"}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => parkFiller(s)}
+                      disabled={pending}
+                      className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-on-accent disabled:opacity-50"
+                    >
+                      Park it
+                    </button>
+                    <button onClick={() => leaveFiller(s)} disabled={pending} className="text-chalk-dim underline disabled:opacity-50">
+                      Leave it
+                    </button>
+                  </span>
                 </li>
               );
             })}
