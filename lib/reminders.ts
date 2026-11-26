@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Source } from "./resolve-drop";
 import { addWorkingDays, daysBetweenDateStrs, type Weekday } from "./time";
+import { detectStage } from "./asana/stage";
 
 /** How long an auto-guessed estimate sits before the morning brief asks you to confirm or correct it. */
 export const UNCONFIRMED_ESTIMATE_NUDGE_DAYS = 2;
@@ -20,7 +21,8 @@ export type UnconfirmedEstimateReminder = {
   source: Source;
   reference: string;
   name: string;
-  hours: number;
+  /** null for a task that's never had any estimate at all (tier 5, "needs estimate") — the guessed figure, otherwise. */
+  hours: number | null;
   stage: string | null;
   focusType: string | null;
   videoType: string | null;
@@ -289,6 +291,60 @@ export async function loadReminders(
         stage: (m.stage as string | null) ?? null,
         focusType: (m.focus_type as string | null) ?? null,
         videoType: (m.video_type as string | null) ?? null,
+      });
+    }
+  }
+
+  // A task with no estimate at all (tier 5 — not even a guess) sits
+  // silently in the Unscheduled queue with its own "reason" already set to
+  // this exact text (app/(app)/plan/build-actions.ts) — same nudge as a
+  // guessed-but-unconfirmed one once it's sat a couple of days, so "ask
+  // once and remember it" (the learned tier, lib/estimates.ts) actually
+  // gets a real number to remember instead of the gap sitting unnoticed.
+  const { data: needsEstimateRows } = await supabase
+    .from("plan_items")
+    .select("source, reference, created_at")
+    .eq("user_id", userId)
+    .is("day", null)
+    .eq("status", "planned")
+    .eq("reason", "Needs an estimate");
+  const neverEstimated = (needsEstimateRows ?? []).filter(
+    (r) => daysBetweenDateStrs((r.created_at as string).slice(0, 10), opts.todayStr) >= UNCONFIRMED_ESTIMATE_NUDGE_DAYS
+  );
+  if (neverEstimated.length > 0) {
+    const asanaGids = neverEstimated.filter((r) => r.source === "asana").map((r) => r.reference as string);
+    const personalIds = neverEstimated.filter((r) => r.source === "personal").map((r) => r.reference as string);
+    const [asanaNameRows, personalNameRows] = await Promise.all([
+      asanaGids.length > 0
+        ? supabase.from("asana_tasks").select("gid, name, parent_name, custom_fields").in("gid", asanaGids)
+        : Promise.resolve({ data: [] }),
+      personalIds.length > 0 ? supabase.from("personal_tasks").select("id, name").in("id", personalIds) : Promise.resolve({ data: [] }),
+    ]);
+    const nameByKey = new Map<string, string>();
+    const stageByKey = new Map<string, string | null>();
+    const videoTypeByKey = new Map<string, string | null>();
+    for (const t of (asanaNameRows.data ?? []) as { gid: string; name: string; parent_name: string | null; custom_fields: Record<string, unknown> }[]) {
+      nameByKey.set(`asana:${t.gid}`, t.parent_name ? `${t.parent_name} — ${t.name}` : t.name);
+      // Real stage detection (bare name, same as the rest of the estimate
+      // system) — so confirming this writes a correctly-tagged estimate
+      // the "learned" tier (lib/estimates.ts) can actually reuse for the
+      // next same-type task, not an untagged one-off.
+      stageByKey.set(`asana:${t.gid}`, detectStage(t.name));
+      videoTypeByKey.set(`asana:${t.gid}`, (t.custom_fields?.["Video Type"] as string | undefined) ?? null);
+    }
+    for (const t of (personalNameRows.data ?? []) as { id: string; name: string }[]) nameByKey.set(`personal:${t.id}`, t.name);
+    for (const r of neverEstimated) {
+      const key = `${r.source}:${r.reference}`;
+      const name = nameByKey.get(key);
+      if (!name) continue; // task itself is gone — nothing left to estimate
+      unconfirmedEstimates.push({
+        source: r.source as Source,
+        reference: r.reference as string,
+        name,
+        hours: null,
+        stage: stageByKey.get(key) ?? null,
+        focusType: null,
+        videoType: videoTypeByKey.get(key) ?? null,
       });
     }
   }

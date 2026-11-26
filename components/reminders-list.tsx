@@ -159,25 +159,27 @@ export function RemindersList({ data }: { data: RemindersData }) {
                   ) : (
                     <>
                       <span>
-                        {e.name} <span className="text-chalk-dim">— guessed at {e.hours}h</span>
+                        {e.name} <span className="text-chalk-dim">— {e.hours != null ? `guessed at ${e.hours}h` : "no estimate yet"}</span>
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
-                        <button
-                          onClick={() => confirmEstimate(e, e.hours)}
-                          disabled={pending}
-                          className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-on-accent disabled:opacity-50"
-                        >
-                          That&apos;s right
-                        </button>
+                        {e.hours != null && (
+                          <button
+                            onClick={() => confirmEstimate(e, e.hours as number)}
+                            disabled={pending}
+                            className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-on-accent disabled:opacity-50"
+                          >
+                            That&apos;s right
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             setEditingKey(key);
-                            setEditHours(String(e.hours));
+                            setEditHours(e.hours != null ? String(e.hours) : "");
                           }}
                           disabled={pending}
                           className="text-chalk-dim underline disabled:opacity-50"
                         >
-                          Correct it
+                          {e.hours != null ? "Correct it" : "Give an estimate"}
                         </button>
                       </span>
                     </>
