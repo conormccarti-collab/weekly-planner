@@ -345,7 +345,7 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
                       <option value="">Create as new task</option>
                       {item.candidates.map((c) => (
                         <option key={c.reference} value={c.reference}>
-                          Link to: {c.name}
+                          Link to: {c.parentName ? `${c.parentName} — ${c.name}` : c.name}
                         </option>
                       ))}
                     </select>
@@ -412,7 +412,7 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
               >
                 {planChangeDraft.candidates.map((c) => (
                   <option key={`${c.source}:${c.reference}`} value={`${c.source}:${c.reference}`}>
-                    {c.name}
+                    {c.parentName ? `${c.parentName} — ${c.name}` : c.name}
                   </option>
                 ))}
               </select>
@@ -461,7 +461,7 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
               >
                 {distributeDraft.candidates.map((c) => (
                   <option key={`${c.source}:${c.reference}`} value={`${c.source}:${c.reference}`}>
-                    {c.name}
+                    {c.parentName ? `${c.parentName} — ${c.name}` : c.name}
                   </option>
                 ))}
               </select>
@@ -593,7 +593,7 @@ function PickerCard({
         <select value={selected ?? ""} onChange={(e) => onSelect(e.target.value)} className="w-full rounded border border-border bg-slate px-1 py-0.5 text-chalk">
           {candidates.map((c) => (
             <option key={`${c.source}:${c.reference}`} value={`${c.source}:${c.reference}`}>
-              {c.name}
+              {c.parentName ? `${c.parentName} — ${c.name}` : c.name}
             </option>
           ))}
         </select>

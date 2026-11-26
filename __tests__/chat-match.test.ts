@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { findCandidateMatches } from "@/lib/chat/match";
 
 const existing = [
-  { source: "asana" as const, reference: "1", name: "Brian's 25th Trip - Edit" },
-  { source: "asana" as const, reference: "2", name: "W2W - 25th Anniversary Tartan" },
-  { source: "personal" as const, reference: "3", name: "Book the dentist" },
+  { source: "asana" as const, reference: "1", name: "Brian's 25th Trip - Edit", parentName: null },
+  { source: "asana" as const, reference: "2", name: "W2W - 25th Anniversary Tartan", parentName: null },
+  { source: "personal" as const, reference: "3", name: "Book the dentist", parentName: null },
 ];
 
 describe("findCandidateMatches", () => {

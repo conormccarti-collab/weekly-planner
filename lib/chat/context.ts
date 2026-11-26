@@ -172,7 +172,7 @@ export async function loadExistingTaskNames(supabase: SupabaseClient, userId: st
   const [asanaResult, personalResult] = await Promise.all([
     supabase
       .from("asana_tasks")
-      .select("gid, name")
+      .select("gid, name, parent_name")
       .eq("completed", false)
       .eq("no_longer_assigned", false)
       .eq("is_plannable", true)
@@ -184,11 +184,13 @@ export async function loadExistingTaskNames(supabase: SupabaseClient, userId: st
     source: "asana",
     reference: t.gid,
     name: t.name,
+    parentName: t.parent_name,
   }));
   const personalNames: ExistingTaskName[] = (personalResult.data ?? []).map((t) => ({
     source: "personal",
     reference: t.id,
     name: t.name,
+    parentName: null,
   }));
 
   return [...asanaNames, ...personalNames];

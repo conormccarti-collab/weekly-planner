@@ -1,4 +1,5 @@
-export type ExistingTaskName = { source: "asana" | "personal"; reference: string; name: string };
+/** `parentName` is display-only (the deliverable a generically-named stage like "Pre-Edit Review & Brief" belongs to) — matching and detectStage both deliberately keep using bare `name`, never this. */
+export type ExistingTaskName = { source: "asana" | "personal"; reference: string; name: string; parentName: string | null };
 export type MatchCandidate = ExistingTaskName & { score: number };
 
 function normalize(s: string): string {
