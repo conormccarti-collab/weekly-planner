@@ -43,6 +43,8 @@ export type Settings = {
   lunch_window_end: string;
   /** v5 Stage 12g §B: "Minimum part size is a setting (default 1h)." */
   min_split_part_minutes: number;
+  /** v5 Stage 13a: % of each day's own capacity withheld from placement entirely, reported as a labelled free area rather than unplanned emptiness. Brief's own decided default: 15%. */
+  buffer_percentage: number;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -62,4 +64,5 @@ export const DEFAULT_SETTINGS: Settings = {
   lunch_window_start: "12:00",
   lunch_window_end: "14:00",
   min_split_part_minutes: 60,
+  buffer_percentage: 15,
 };

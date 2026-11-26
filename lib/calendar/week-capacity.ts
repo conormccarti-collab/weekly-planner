@@ -31,6 +31,8 @@ export type DayCapacityView = {
   lunchIsActual: boolean;
   /** The actual reserved lunch slot, for display as a row in the day's timeline — null when lunch is off (settings.lunch_enabled) or the day has no working window. */
   lunchInterval: FreeBlock | null;
+  /** v5 Stage 13a: hours withheld from today's freeBlocks as buffer — 0 when settings.buffer_percentage is 0 or the day has no free time to withhold. */
+  bufferHours: number;
   isLocked: boolean;
   lockedReason: string | null;
   /** "manual" = set via the day-card's Lock day button; "calendar" = an all-day busy event (incl. a real Google Out of Office entry) already blocks the day — nothing to toggle, the Lock control just shows a label. */
@@ -199,6 +201,7 @@ export async function getWeekCapacity(
       lunchMode: settings.lunch_mode,
       lunchWindowStart: settings.lunch_window_start ? parseHHMM(settings.lunch_window_start) : undefined,
       lunchWindowEnd: settings.lunch_window_end ? parseHHMM(settings.lunch_window_end) : undefined,
+      bufferPercentage: settings.buffer_percentage,
     });
 
     const dayEvents: DayEventView[] = [...allDayEventsToday, ...timedEventsToday].map((e) => ({
@@ -223,6 +226,7 @@ export async function getWeekCapacity(
       lunchLabel: formatHHMM(lunchStartMinutes),
       lunchIsActual: lunchOverride != null,
       lunchInterval: result.lunchInterval,
+      bufferHours: result.bufferHours,
       isLocked,
       lockedReason,
       lockSource,

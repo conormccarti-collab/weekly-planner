@@ -124,6 +124,16 @@ export function SettingsForm({
             className="w-full rounded border border-border bg-slate px-2 py-1 text-sm text-chalk"
           />
         </Field>
+        <Field label="Buffer (% of each day kept free)">
+          <input
+            type="number"
+            min="0"
+            max="100"
+            name="buffer_percentage"
+            defaultValue={initial.buffer_percentage}
+            className="w-full rounded border border-border bg-slate px-2 py-1 text-sm text-chalk"
+          />
+        </Field>
         <Field label="Time zone">
           <input
             type="text"

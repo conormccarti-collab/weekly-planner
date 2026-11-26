@@ -10,6 +10,10 @@ const SETTINGS_COLUMNS =
 // settings down with it.
 const BREAK_SETTINGS_COLUMNS = "lunch_enabled, lunch_mode, lunch_window_start, lunch_window_end, min_split_part_minutes";
 
+// v5 Stage 13a: another separate best-effort fetch, same reason as
+// BREAK_SETTINGS_COLUMNS above — migration 0031 may not be applied yet.
+const BUFFER_SETTINGS_COLUMNS = "buffer_percentage";
+
 export async function loadSettings(supabase: SupabaseClient, userId: string): Promise<Settings> {
   const { data } = await supabase
     .from("settings")
@@ -19,11 +23,15 @@ export async function loadSettings(supabase: SupabaseClient, userId: string): Pr
 
   if (!data) return DEFAULT_SETTINGS;
 
-  const { data: breakSettings } = await supabase
-    .from("settings")
-    .select(BREAK_SETTINGS_COLUMNS)
-    .eq("user_id", userId)
-    .maybeSingle();
+  const [{ data: breakSettings }, { data: bufferSettings }] = await Promise.all([
+    supabase.from("settings").select(BREAK_SETTINGS_COLUMNS).eq("user_id", userId).maybeSingle(),
+    supabase.from("settings").select(BUFFER_SETTINGS_COLUMNS).eq("user_id", userId).maybeSingle(),
+  ]);
 
-  return { ...DEFAULT_SETTINGS, ...(data as Settings), ...(breakSettings as Partial<Settings> | null) };
+  return {
+    ...DEFAULT_SETTINGS,
+    ...(data as Settings),
+    ...(breakSettings as Partial<Settings> | null),
+    ...(bufferSettings as Partial<Settings> | null),
+  };
 }

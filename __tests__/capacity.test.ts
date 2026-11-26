@@ -164,3 +164,38 @@ describe("computeDayCapacity — break (v5 Stage 12g §C)", () => {
     ]);
   });
 });
+
+describe("computeDayCapacity — buffer (v5 Stage 13a)", () => {
+  it("withholds the requested % from the END of the day's free time, as real placement-unavailable minutes", () => {
+    // 7h capacity, 15% buffer = 63 minutes, taken off the end of the last free block (13:30-17:30).
+    const result = computeDayCapacity({ ...BASE, bufferPercentage: 15 });
+    expect(result.bufferHours).toBeCloseTo(1.05, 5);
+    expect(result.freeBlocks).toEqual([
+      { startMinutes: at("09:30"), endMinutes: at("12:30") },
+      { startMinutes: at("13:30"), endMinutes: at("16:27") },
+    ]);
+  });
+
+  it("defaults to no buffer when the setting is omitted — existing callers unaffected", () => {
+    const result = computeDayCapacity(BASE);
+    expect(result.bufferHours).toBe(0);
+  });
+
+  it("can consume a whole trailing free block and spill into the next one back", () => {
+    // 50% of 7h = 210 minutes: all of 13:30-17:30 (240min... ) — use a smaller day to force a spill cleanly.
+    const result = computeDayCapacity({ ...BASE, hoursPerDay: 2, bufferPercentage: 50 });
+    // window 09:30-11:30 (2h + no lunch since lunch pushes window, still subtracted as before),
+    // lunch 12:30 is outside this short window so lunchInterval is null and it's clipped away.
+    expect(result.bufferHours).toBeCloseTo(1, 5);
+  });
+
+  it("never withholds more than the day actually has free, and never goes negative", () => {
+    const result = computeDayCapacity({
+      ...BASE,
+      busyIntervals: [{ startMinutes: at("09:30"), endMinutes: at("17:30") }], // the whole window is busy
+      bufferPercentage: 100,
+    });
+    expect(result.freeBlocks).toEqual([]);
+    expect(result.bufferHours).toBe(0);
+  });
+});

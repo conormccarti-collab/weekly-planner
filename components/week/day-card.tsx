@@ -85,6 +85,14 @@ export function DayCard({
           <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${over ? "bg-danger-tint text-danger" : "bg-surface-hover text-chalk-dim"}`}>
             {formatHours(plannedHours)} / {formatHours(day.plannedCapacityHours)}
           </span>
+          {day.bufferHours > 0 && (
+            <span
+              className="rounded bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium text-chalk-dim"
+              title="Kept free on purpose — the buffer % setting, not unplanned emptiness"
+            >
+              {formatHours(day.bufferHours)} buffer
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           <button

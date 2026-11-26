@@ -22,6 +22,14 @@ export type DayCapacityInput = {
   lunchMode?: "fixed" | "flexible";
   lunchWindowStart?: number;
   lunchWindowEnd?: number;
+  /**
+   * v5 Stage 13a: a settings-driven % of the day's own capacity withheld
+   * from `freeBlocks` entirely (not just a reporting scale-down, unlike
+   * planningPercentage below) — real placement time held back and reported,
+   * rather than looking like unplanned emptiness. Default 0 (off) when
+   * omitted, so every existing caller is unaffected until it opts in.
+   */
+  bufferPercentage?: number;
 };
 
 export type FreeBlock = Interval;
@@ -32,9 +40,37 @@ export type DayCapacityResult = {
   freeBlocks: FreeBlock[];
   /** The actual reserved lunch slot (fixed time, or wherever flexible mode landed it) — null when lunch is off, or there's no working window to put it in. */
   lunchInterval: Interval | null;
+  /** v5 Stage 13a: hours actually withheld from freeBlocks as buffer — may be less than the requested % if the day doesn't have that much free time to withhold. */
+  bufferHours: number;
 };
 
-const EMPTY_RESULT: DayCapacityResult = { capacityHours: 0, plannedCapacityHours: 0, freeBlocks: [], lunchInterval: null };
+const EMPTY_RESULT: DayCapacityResult = { capacityHours: 0, plannedCapacityHours: 0, freeBlocks: [], lunchInterval: null, bufferHours: 0 };
+
+/**
+ * Withholds `bufferMinutes` from the END of the day's free time — the
+ * day's own trailing slack, not a specific calendar slot — so it's never
+ * unplanned emptiness (brief: "reserve the buffer... as a labelled free
+ * area"). Returns fewer minutes than requested if the day simply doesn't
+ * have that much free time at all, never negative capacity.
+ */
+function reserveBuffer(freeBlocks: Interval[], bufferMinutes: number): { freeBlocks: Interval[]; reservedMinutes: number } {
+  if (bufferMinutes <= 0) return { freeBlocks, reservedMinutes: 0 };
+  let remaining = bufferMinutes;
+  const kept: Interval[] = [];
+  for (let i = freeBlocks.length - 1; i >= 0; i--) {
+    const block = freeBlocks[i];
+    const len = block.endMinutes - block.startMinutes;
+    if (remaining <= 0) {
+      kept.unshift(block);
+    } else if (len <= remaining) {
+      remaining -= len; // whole block withheld as buffer
+    } else {
+      kept.unshift({ startMinutes: block.startMinutes, endMinutes: block.endMinutes - remaining });
+      remaining = 0;
+    }
+  }
+  return { freeBlocks: kept, reservedMinutes: bufferMinutes - remaining };
+}
 
 function clip(interval: Interval, windowStart: number, windowEnd: number): Interval | null {
   const start = Math.max(interval.startMinutes, windowStart);
@@ -133,7 +169,10 @@ export function computeDayCapacity(input: DayCapacityInput): DayCapacityResult {
     lunchInterval = clip({ startMinutes: lunchStart, endMinutes: lunchStart + input.lunchMinutes }, windowStart, windowEnd);
   }
   const blockedForPlacement = lunchInterval ? [...mergedBusy, lunchInterval] : mergedBusy;
-  const freeBlocks = subtract(window, blockedForPlacement);
+  const freeBlocksBeforeBuffer = subtract(window, blockedForPlacement);
 
-  return { capacityHours, plannedCapacityHours, freeBlocks, lunchInterval };
+  const bufferMinutes = Math.round(capacityHours * 60 * ((input.bufferPercentage ?? 0) / 100));
+  const { freeBlocks, reservedMinutes } = reserveBuffer(freeBlocksBeforeBuffer, bufferMinutes);
+
+  return { capacityHours, plannedCapacityHours, freeBlocks, lunchInterval, bufferHours: reservedMinutes / 60 };
 }

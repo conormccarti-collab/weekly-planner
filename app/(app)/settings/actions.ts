@@ -42,6 +42,7 @@ export async function saveSettings(formData: FormData) {
   const lunchWindowStart = String(formData.get("lunch_window_start") || "12:00");
   const lunchWindowEnd = String(formData.get("lunch_window_end") || "14:00");
   const minSplitPartMinutes = Number(formData.get("min_split_part_minutes"));
+  const bufferPercentage = Number(formData.get("buffer_percentage"));
 
   // v5 Stage 12d.1: one checkbox per known project (`asana_projects`), named
   // `planned_project_<gid>` — every checked one is included.
@@ -94,6 +95,12 @@ export async function saveSettings(formData: FormData) {
       ...(Number.isFinite(minSplitPartMinutes) ? { min_split_part_minutes: minSplitPartMinutes } : {}),
     })
     .eq("user_id", user.id);
+
+  // v5 Stage 13a: another separate best-effort write — migration 0031 may
+  // not be applied yet, and a failure here must not block the rest of the save.
+  if (Number.isFinite(bufferPercentage)) {
+    await supabase.from("settings").update({ buffer_percentage: bufferPercentage }).eq("user_id", user.id);
+  }
 
   // The Office picker sets the accent colour applied in the (app) layout —
   // revalidate the whole app shell, not just this page.
