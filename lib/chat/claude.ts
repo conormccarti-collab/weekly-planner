@@ -25,7 +25,7 @@ export type ChatAction =
   | { type: "idea"; items: { title: string }[] }
   | { type: "priority_override"; taskName: string; newPriority: string }
   | { type: "plan_change"; taskName: string; newDay: string | null; newDurationHours: number | null; durationDeltaHours: number | null }
-  | { type: "distribute_block"; taskName: string; distribution: { day: string; hours: number }[] }
+  | { type: "distribute_block"; taskName: string; distribution: { day: string; hours: number | null }[] }
   | { type: "must_change"; taskName: string; must: boolean }
   | { type: "remove_block"; taskName: string }
   | { type: "park_change"; taskName: string; parked: boolean }
@@ -144,19 +144,20 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "propose_distribute_block",
     description:
-      "Use when the user wants to split an already-placed (or currently unplaced) task's hours across TWO OR MORE specific days with explicit hours for each — e.g. 'Move the Scott Dunn edit to the weekend, 6 hours Saturday and 8 hours Sunday.' Only call this once the user has given real hours for each day. If they've only named days with no split, or given a total without saying how to divide it, ASK how to split it instead of calling this — never invent a split yourself. For a move to just one day, use propose_plan_change instead. Never decide which existing task this refers to — that is done separately in code.",
+      "Use when the user wants to split an already-placed (or currently unplaced) task's hours across TWO OR MORE specific days — e.g. 'Move the Scott Dunn edit to the weekend, 6 hours Saturday and 8 hours Sunday' (explicit hours each) or 'I only want Scott Dunn images this weekend' (naming the days, splitting evenly — leave hours null for each and code divides the task's current total evenly across them, since that's a real division, not a guess). Only leave hours null when an EVEN split across every named day is really what's meant; if the user implies an uneven split without giving numbers ('mostly Saturday'), ASK for the actual numbers instead of calling this. For a move to just one day, use propose_plan_change instead. Never decide which existing task this refers to, and never work out the hours total yourself — both are done separately in code.",
     input_schema: {
       type: "object",
       properties: {
         taskName: { type: "string", description: "The task being referred to, in the user's own words." },
         distribution: {
           type: "array",
-          description: "Each day and how many hours go on it, in the order the user gave them. At least two entries.",
+          description:
+            "Each day to place it on, in the order the user gave them. At least two entries. Give hours explicitly when the user did; leave hours null on every entry meant to share an even split of the task's current total.",
           items: {
             type: "object",
             properties: {
               day: { type: "string", description: "YYYY-MM-DD, resolved using today's date." },
-              hours: { type: "number", description: "Hours to place on this day." },
+              hours: { type: ["number", "null"], description: "Hours to place on this day, or null to let code split the remaining total evenly across every null entry." },
             },
             required: ["day", "hours"],
             additionalProperties: false,
@@ -333,8 +334,10 @@ only once you're actually ready to create or change something:
 - Something idea-shaped, not an actionable task for this week → propose_ideas.
 - A request to change how important an existing task is → propose_priority_override.
 - A request to move and/or resize an existing placed task → propose_plan_change.
-- A request to split a task's hours across two or more specific days with explicit hours given for
-  each → propose_distribute_block. If hours per day aren't given, ask for the split instead.
+- A request to split a task's hours across two or more specific days, whether hours are given
+  explicitly or an even split across the named days is clearly what's meant → propose_distribute_block
+  (null hours for an even split — code divides the total, never guess the number yourself). Only ask
+  for the split when it's neither explicit nor evenly implied.
 - A request to flag or clear a task's Must status → propose_must_change.
 - A request to take a placed task off the calendar → propose_remove_block.
 - A request to park or unpark a task → propose_park_change.
@@ -428,7 +431,7 @@ export async function classifyChatMessage(
       return {
         type: "distribute_block",
         taskName: input.taskName as string,
-        distribution: input.distribution as { day: string; hours: number }[],
+        distribution: input.distribution as { day: string; hours: number | null }[],
       };
     }
     if (toolUse.name === "propose_must_change") {

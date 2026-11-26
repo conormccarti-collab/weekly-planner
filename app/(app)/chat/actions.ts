@@ -7,12 +7,13 @@ import { classifyChatMessage, type ChatHistoryMessage } from "@/lib/chat/claude"
 import { buildChatContext, loadExistingTaskNames } from "@/lib/chat/context";
 import { findCandidateMatches, type MatchCandidate } from "@/lib/chat/match";
 import { setPriorityOverride, setParked, setTaskEstimate } from "@/app/(app)/tasks/actions";
-import { moveBlock, setPlanMust, removeBlock, splitBlock, reprioritiseFromDay, resolveAndApplyDrop } from "@/app/(app)/plan/actions";
+import { moveBlock, setPlanMust, removeBlock, splitBlock, reprioritiseFromDay, buildDropContext, applyDropChanges } from "@/app/(app)/plan/actions";
+import { resolveDrop } from "@/lib/resolve-drop";
 import { loadSettings } from "@/lib/settings-data";
 import { setDayLock } from "@/app/(app)/capacity/actions";
 import { addSchedulingRule } from "@/app/(app)/settings/rules-actions";
 import { sumActualHours, PERIOD_LABELS } from "@/lib/chat/history-query";
-import { resolveNewDurationMinutes } from "@/lib/chat/duration-change";
+import { resolveNewDurationMinutes, resolveEvenSplit } from "@/lib/chat/duration-change";
 import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { addDaysToDateStr, localToUtcInstant, mondayOf, parseHHMM, utcInstantToLocal, weekdayOfDateStr } from "@/lib/time";
 import { env } from "@/lib/env";
@@ -57,7 +58,7 @@ export type ChatProposalAction =
   | { type: "idea"; items: { title: string }[] }
   | { type: "priority_override"; taskName: string; newPriority: string; candidates: MatchCandidate[] }
   | { type: "plan_change"; taskName: string; newDay: string | null; newDurationHours: number | null; candidates: MatchCandidate[] }
-  | { type: "distribute_block"; taskName: string; distribution: { day: string; hours: number }[]; candidates: MatchCandidate[] }
+  | { type: "distribute_block"; taskName: string; distribution: { day: string; hours: number | null }[]; candidates: MatchCandidate[] }
   | { type: "must_change"; taskName: string; must: boolean; candidates: MatchCandidate[] }
   | { type: "remove_block"; taskName: string; candidates: MatchCandidate[] }
   | { type: "park_change"; taskName: string; parked: boolean; candidates: MatchCandidate[] }
@@ -263,7 +264,7 @@ export async function sendChatMessage(
     const hasSplit = action.distribution.length >= 2;
     if (candidates.length === 1 && hasSplit) {
       try {
-        const result = await confirmDistributeBlock(candidates[0].source, candidates[0].reference, action.distribution);
+        const result = await confirmDistributeBlock(candidates[0].source, candidates[0].reference, candidates[0].name, action.distribution);
         const text = modelText ?? `${candidates[0].name}: ${result.summaries.join(" ")}`;
         await logChatTurn(persist, supabase, user.id, weekStart, message, text);
         return { text, proposal: null };
@@ -600,23 +601,49 @@ export async function confirmPlanChange(
 
 /**
  * "Move the Scott Dunn edit to the weekend, 6 hours Saturday and 8 hours
- * Sunday" — a full redistribution across specific named days, each with its
- * own explicit hours (propose_distribute_block already refuses to invent a
- * split, so by the time this runs the numbers are real, not guessed). Every
- * existing not-yet-resolved placement for this task is cleared first
- * (done/behind rows are left alone — real history, not up for relocation),
- * then each day is placed one at a time through the same insert-and-push
- * engine (resolveAndApplyDrop) a single drag-drop move already uses, so
- * whatever's in the way on a target day gets pushed/split exactly like it
- * would from dragging a block there by hand.
+ * Sunday" (explicit hours) or "only Scott Dunn images this weekend" (an
+ * even split — null hours, resolved below via resolveEvenSplit against the
+ * task's real current total, never a number the model made up) — a full
+ * redistribution across specific named days. Every existing not-yet-resolved
+ * placement for this task is cleared first (done/behind rows are left alone
+ * — real history, not up for relocation), then each day is placed one at a
+ * time through the same insert-and-push engine resolveDrop (lib/resolve-drop.ts)
+ * a single drag-drop move already uses, so whatever's in the way on a target
+ * day gets pushed/split exactly like it would from dragging a block there by
+ * hand — but with `days` deliberately narrowed to just that one day, unlike
+ * the shared resolveAndApplyDrop action (which hands it a two-week window).
+ * Without that, a day's own hours not fully fitting would silently spill
+ * into whatever's next in the window — including a day with its *own*
+ * upcoming entry in this same distribution — leaving a pinned leftover of
+ * this very task sitting there that the next loop iteration then collides
+ * with as if it were someone else's block. Narrowing to one day turns an
+ * overflow into an honest "didn't fully fit" instead.
  */
 export async function confirmDistributeBlock(
   source: "asana" | "personal",
   reference: string,
-  distribution: { day: string; hours: number }[]
+  name: string,
+  distribution: { day: string; hours: number | null }[]
 ): Promise<{ summaries: string[] }> {
   const supabase = await createClient();
   const user = await requireUser(supabase);
+
+  // An even split (null hours) divides the task's current real total, not
+  // a figure the model made up — captured before the clear below, from the
+  // same rows that are about to be redistributed.
+  const { data: existingRows } = await supabase
+    .from("plan_items")
+    .select("hours")
+    .eq("user_id", user.id)
+    .eq("source", source)
+    .eq("reference", reference)
+    .in("status", ["planned", "suggested"])
+    .not("day", "is", null);
+  const currentTotalHours = (existingRows ?? []).reduce((sum, r) => sum + Number(r.hours ?? 0), 0);
+  if (distribution.some((d) => d.hours == null) && currentTotalHours <= 0) {
+    throw new Error("I don't know this task's current total hours, so I can't split it evenly — give me the hours for each day instead.");
+  }
+  const resolvedDistribution = resolveEvenSplit(currentTotalHours, distribution);
 
   await supabase
     .from("plan_items")
@@ -628,13 +655,24 @@ export async function confirmDistributeBlock(
 
   const settings = await loadSettings(supabase, user.id);
   const summaries: string[] = [];
-  for (const { day, hours } of distribution) {
+  for (const { day, hours } of resolvedDistribution) {
+    const { days, blocks } = await buildDropContext(supabase, user.id, day, null);
+    const dayShape = days.find((d) => d.day === day);
+    if (!dayShape) throw new Error(`${day} isn't available to plan into.`);
     const startMinutes = parseHHMM(settings.start_times[weekdayOfDateStr(day)] ?? "09:00");
-    const result = await resolveAndApplyDrop(source, reference, null, Math.round(hours * 60), day, startMinutes);
+    const result = resolveDrop({
+      moving: { id: null, source, reference, name, durationMinutes: Math.round(hours * 60) },
+      target: { day, startMinutes },
+      days: [dayShape],
+      blocks,
+      minPartMinutes: settings.min_split_part_minutes,
+    });
     if (!result.ok) throw new Error(result.reason);
+    await applyDropChanges(supabase, user.id, null, result.changes);
     summaries.push(result.summary);
   }
 
+  revalidatePath("/");
   return { summaries };
 }
 

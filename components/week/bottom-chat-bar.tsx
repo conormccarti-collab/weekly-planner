@@ -26,7 +26,7 @@ import type { MatchCandidate } from "@/lib/chat/match";
 type HistoryEntry = { kind: "user" | "answer" | "error"; text: string };
 type MondayDraftItem = MondayListProposalItem & { linkedReference: string | null; include: boolean };
 type PlanChangeDraft = { taskName: string; newDay: string; newDurationHours: string; candidates: MatchCandidate[]; selected: string | null };
-type DistributeDraft = { taskName: string; distribution: { day: string; hours: number }[]; candidates: MatchCandidate[]; selected: string | null };
+type DistributeDraft = { taskName: string; distribution: { day: string; hours: number | null }[]; candidates: MatchCandidate[]; selected: string | null };
 type EditDraft =
   | { kind: "must_change"; taskName: string; must: boolean; candidates: MatchCandidate[]; selected: string | null }
   | { kind: "remove_block"; taskName: string; candidates: MatchCandidate[]; selected: string | null }
@@ -193,7 +193,7 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
     const name = distributeDraft.candidates.find((c) => `${c.source}:${c.reference}` === distributeDraft.selected)?.name ?? distributeDraft.taskName;
     startTransition(async () => {
       try {
-        const result = await confirmDistributeBlock(source, reference, distributeDraft.distribution);
+        const result = await confirmDistributeBlock(source, reference, name, distributeDraft.distribution);
         const text = `${name}: ${result.summaries.join(" ")}`;
         await appendAssistantMessage(text);
         setHistory((h) => [...h, { kind: "answer", text }]);
@@ -481,20 +481,29 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
                 <input
                   type="number"
                   step="0.25"
-                  placeholder="hours"
-                  value={entry.hours}
+                  placeholder="even split"
+                  value={entry.hours ?? ""}
                   onChange={(e) =>
                     setDistributeDraft((d) =>
                       d
-                        ? { ...d, distribution: d.distribution.map((row, j) => (j === i ? { ...row, hours: Number(e.target.value) } : row)) }
+                        ? {
+                            ...d,
+                            distribution: d.distribution.map((row, j) =>
+                              j === i ? { ...row, hours: e.target.value === "" ? null : Number(e.target.value) } : row
+                            ),
+                          }
                         : d
                     )
                   }
-                  className="w-20 rounded border border-border bg-slate px-1 py-0.5 text-chalk"
+                  className="w-24 rounded border border-border bg-slate px-1 py-0.5 text-chalk"
                 />
               </div>
             ))}
-            <p className="text-chalk-dim">Total: {distributeDraft.distribution.reduce((sum, r) => sum + (r.hours || 0), 0)}h</p>
+            <p className="text-chalk-dim">
+              {distributeDraft.distribution.some((r) => r.hours == null)
+                ? "Blank fields split the remaining total evenly."
+                : `Total: ${distributeDraft.distribution.reduce((sum, r) => sum + (r.hours ?? 0), 0)}h`}
+            </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDistributeDraft(null)} className="text-chalk">
                 Cancel
