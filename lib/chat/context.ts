@@ -20,7 +20,7 @@ export async function buildChatContext(supabase: SupabaseClient, userId: string)
     getWeekCapacity(supabase, userId, timezone, settings, followingWeekStart, { useActualStarts: false }),
     supabase
       .from("asana_tasks")
-      .select("name, due_on, custom_fields, is_plannable, is_container, completed, no_longer_assigned")
+      .select("name, parent_name, due_on, custom_fields, is_plannable, is_container, completed, no_longer_assigned")
       .eq("completed", false)
       .eq("no_longer_assigned", false)
       .eq("is_plannable", true)
@@ -104,11 +104,19 @@ export async function buildChatContext(supabase: SupabaseClient, userId: string)
   const asanaRefs = [...new Set(placedThisWeek.filter((r) => r.source === "asana").map((r) => r.reference as string))];
   const personalRefs = [...new Set(placedThisWeek.filter((r) => r.source === "personal").map((r) => r.reference as string))];
   const [placedAsanaNames, placedPersonalNames] = await Promise.all([
-    asanaRefs.length > 0 ? supabase.from("asana_tasks").select("gid, name").in("gid", asanaRefs) : Promise.resolve({ data: [] }),
+    asanaRefs.length > 0 ? supabase.from("asana_tasks").select("gid, name, parent_name").in("gid", asanaRefs) : Promise.resolve({ data: [] }),
     personalRefs.length > 0 ? supabase.from("personal_tasks").select("id, name").in("id", personalRefs) : Promise.resolve({ data: [] }),
   ]);
   const nameByKey = new Map<string, string>();
-  for (const t of placedAsanaNames.data ?? []) nameByKey.set(`asana:${t.gid}`, t.name as string);
+  // A stage name like "Pre-Edit Review & Brief" is reused across every
+  // deliverable, so the bare name alone can't be told apart from any other
+  // deliverable's same stage — same "parentName — name" convention
+  // components/week/entry-row.tsx already renders on the calendar itself;
+  // without it here, a question like "what's on Saturday?" names a block
+  // neither the model nor the person reading its answer can actually
+  // identify.
+  for (const t of placedAsanaNames.data ?? [])
+    nameByKey.set(`asana:${t.gid}`, t.parent_name ? `${t.parent_name} — ${t.name}` : (t.name as string));
   for (const t of placedPersonalNames.data ?? []) nameByKey.set(`personal:${t.id}`, t.name as string);
 
   const dayLines: string[] = [];
@@ -151,7 +159,7 @@ export async function buildChatContext(supabase: SupabaseClient, userId: string)
     `Tasks due this week or overdue (${dueThisWeekOrOverdue.length}):`,
     ...dueThisWeekOrOverdue
       .slice(0, 40)
-      .map((t) => `  - ${t.name} (due ${t.due_on}, priority: ${t.custom_fields?.["Priority"] ?? "none"})`),
+      .map((t) => `  - ${t.parent_name ? `${t.parent_name} — ${t.name}` : t.name} (due ${t.due_on}, priority: ${t.custom_fields?.["Priority"] ?? "none"})`),
     `Standing rules (${rules?.length ?? 0}):`,
     ...(rules ?? []).map((r) => `  - ${r.text as string}`),
     ...reminderLines,
