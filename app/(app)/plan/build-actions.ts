@@ -23,11 +23,12 @@ async function requireUser(supabase: SupabaseClient): Promise<User> {
  * same as it always has for a draft week.)
  *
  * A past-dated row used to be protected purely by having already
- * happened, regardless of status — but an unpinned block that's still
- * "planned" (never confirmed Done/Behind/Moved) once its day has passed
- * isn't manual work worth preserving in place, it's just unconfirmed, and
- * is swept back into the unplaced queue below before every rebuild so it
- * gets a genuinely new slot going forward instead of sitting frozen.
+ * happened, regardless of status, pinned included — but a block that's
+ * still "planned" (never confirmed Done/Behind/Moved) once its day has
+ * passed isn't manual work worth preserving in place, it's just
+ * unconfirmed, and is swept back into the unplaced queue below before
+ * every rebuild (clearing any pin too) so it gets a genuinely new slot
+ * going forward instead of sitting frozen.
  *
  * v5 Stage 12c: this is deliberately **not** called from the Week page's
  * render path any more — "the page load must be read-only." It's called
@@ -61,22 +62,21 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
     if (error && error.code !== "23505") throw new Error(`Failed to create draft week: ${error.message}`);
   }
 
-  // An unpinned block whose day has already passed without being marked
-  // Done, Behind or Moved isn't finished work — it's just unconfirmed, and
-  // the user expects it to move forward on the next refresh rather than
-  // sit frozen on a day that's gone. Swept back into the unplaced queue
+  // A block whose day has already passed without being marked Done,
+  // Behind or Moved isn't finished work — it's just unconfirmed, and the
+  // user expects it to move forward on the next refresh rather than sit
+  // frozen on a day that's gone. Swept back into the unplaced queue
   // (day/time cleared) here, before gathering inputs below, so the normal
-  // build gives it a genuinely new, still-future slot. Pinned stays
-  // protected regardless of day — pinning is the explicit "don't touch
-  // this" signal; elapsed time on its own isn't.
+  // build gives it a genuinely new, still-future slot. Pinned doesn't
+  // exempt it: pinning only means "don't reshuffle this among the current
+  // options," not "freeze it here even once its day is gone."
   if (!isNewWeek) {
     const todayStr = utcInstantToLocal(new Date(), env.appTimezone()).dateStr;
     await supabase
       .from("plan_items")
-      .update({ day: null, start_time: null, end_time: null })
+      .update({ day: null, start_time: null, end_time: null, pinned: false })
       .eq("user_id", userId)
       .eq("week_start", weekStart)
-      .eq("pinned", false)
       .in("status", ["planned", "suggested"])
       .lt("day", todayStr);
   }
