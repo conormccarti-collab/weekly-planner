@@ -14,7 +14,7 @@ import { isDueThisWeekOrOverdue } from "@/lib/plan";
 import { loadSettings } from "@/lib/settings-data";
 import { getWeekCapacity } from "@/lib/calendar/week-capacity";
 import { subtractOccupied, type Range } from "@/lib/blocks";
-import { partitionProtected, behindRemainderCandidates, type BuildCandidate, type ExistingRow } from "@/lib/plan-build";
+import { partitionProtected, behindRemainderCandidates, hoursStillNeeded, type BuildCandidate, type ExistingRow } from "@/lib/plan-build";
 import type { AutoPlaceCandidate, FreeBlock } from "@/lib/auto-placement";
 import { addDaysToDateStr, mondayOf, parseHHMM, utcInstantToLocal, weekdayOfDateStr } from "@/lib/time";
 import { env } from "@/lib/env";
@@ -132,6 +132,28 @@ export async function gatherWeekBuildInputs(
   for (const r of rejectionRows ?? []) {
     if (r.day == null || r.start_time == null) continue;
     avoidSlotByKey.set(`${r.source}:${r.reference}`, { day: r.day as string, startMinutes: parseHHMM(r.start_time as string) });
+  }
+
+  // How much of each task is already committed in a *different* week —
+  // so a task eligible for more than one week's build at once (overdue by
+  // the time a later week gets built, Must-flagged, or pulled in directly)
+  // gets only its real remaining need placed here, not its full estimate
+  // on top of a placement it already has elsewhere (hoursStillNeeded,
+  // lib/plan-build.ts). Scoped to day >= todayStr: a still-upcoming
+  // placement counts; a past, never-completed one doesn't retroactively
+  // shrink what a currently-eligible week needs to find room for.
+  const { data: elsewhereRows } = await supabase
+    .from("plan_items")
+    .select("source, reference, hours")
+    .eq("user_id", userId)
+    .neq("week_start", weekStart)
+    .not("day", "is", null)
+    .gte("day", todayStr)
+    .in("status", ["planned", "suggested"]);
+  const elsewhereHoursByKey = new Map<string, number>();
+  for (const r of elsewhereRows ?? []) {
+    const key = `${r.source}:${r.reference}`;
+    elsewhereHoursByKey.set(key, (elsewhereHoursByKey.get(key) ?? 0) + Number(r.hours ?? 0));
   }
 
   // Rules window — migration 0027 may not be applied yet, same best-effort
@@ -346,6 +368,8 @@ export async function gatherWeekBuildInputs(
       needsEstimatePick.push({ source: "asana", reference: gid });
       continue;
     }
+    const neededHours = hoursStillNeeded(placement.hours, elsewhereHoursByKey.get(key) ?? 0);
+    if (neededHours <= 0) continue; // already fully placed in a different week
     const must = mustByKey.get(key) ?? false;
     candidates.push({
       source: "asana",
@@ -358,7 +382,7 @@ export async function gatherWeekBuildInputs(
       dueOn: task.due_on,
       priority: resolvePriority(task.custom_fields["Priority"] ?? null, priorityOverrideByRef.get(gid) ?? null),
       focusType: (focusType as "deep" | "shallow" | "away" | "waiting" | null) ?? "shallow",
-      estimateHours: placement.hours,
+      estimateHours: neededHours,
       blockedByGids: task.blocked_by_gids ?? [],
       isSuggested: placement.isSuggested,
     });
@@ -377,6 +401,8 @@ export async function gatherWeekBuildInputs(
       needsEstimatePick.push({ source: "personal", reference: t.id });
       continue;
     }
+    const neededHours = hoursStillNeeded(placement.hours, elsewhereHoursByKey.get(key) ?? 0);
+    if (neededHours <= 0) continue; // already fully placed in a different week
     const must = mustByKey.get(key) ?? false;
     candidates.push({
       source: "personal",
@@ -388,7 +414,7 @@ export async function gatherWeekBuildInputs(
       dueOn: t.due_on,
       priority: t.priority,
       focusType: "shallow",
-      estimateHours: placement.hours,
+      estimateHours: neededHours,
       blockedByGids: [],
       isSuggested: placement.isSuggested,
     });

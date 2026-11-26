@@ -80,6 +80,20 @@ export function behindRemainderCandidates(
   return extra;
 }
 
+/**
+ * A candidate's real placement need, net of hours already committed to it
+ * in a *different* week. Without this, a task that's eligible for more
+ * than one week's build at once — overdue by the time a later week gets
+ * built, or pulled into one directly — has its full estimate re-placed on
+ * top of an earlier week's placement it never actually lost: a 28h Edit
+ * task due this week and still overdue by the next build ends up with 56h
+ * on the calendar instead of 28h. Floors at 0 — fully covered elsewhere
+ * means nothing new to place.
+ */
+export function hoursStillNeeded(estimateHours: number, alreadyPlacedElsewhereHours: number): number {
+  return Math.max(0, estimateHours - alreadyPlacedElsewhereHours);
+}
+
 export type BuildResult = {
   placements: (ProposedPlacement & { isSuggested: boolean })[];
   movedToNextWeek: { source: "asana" | "personal"; reference: string }[];

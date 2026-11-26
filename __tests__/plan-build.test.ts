@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeekPlan, partitionProtected, behindRemainderCandidates, type BuildCandidate, type ExistingRow, type ExistingRowWithHours } from "@/lib/plan-build";
+import { buildWeekPlan, partitionProtected, behindRemainderCandidates, hoursStillNeeded, type BuildCandidate, type ExistingRow, type ExistingRowWithHours } from "@/lib/plan-build";
 import type { FreeBlock } from "@/lib/auto-placement";
 
 function candidate(overrides: Partial<BuildCandidate> & { reference: string }): BuildCandidate {
@@ -178,5 +178,23 @@ describe("behindRemainderCandidates", () => {
     ];
     const result = behindRemainderCandidates(candidates, existing, new Map([["asana:a", 5]]));
     expect(result[0].estimateHours).toBe(3);
+  });
+});
+
+describe("hoursStillNeeded", () => {
+  it("subtracts hours already committed to the task in a different week", () => {
+    expect(hoursStillNeeded(28, 10)).toBe(18);
+  });
+
+  it("floors at 0 instead of going negative", () => {
+    expect(hoursStillNeeded(28, 40)).toBe(0);
+  });
+
+  it("returns the full estimate when nothing is committed elsewhere", () => {
+    expect(hoursStillNeeded(28, 0)).toBe(28);
+  });
+
+  it("returns 0 when exactly covered elsewhere", () => {
+    expect(hoursStillNeeded(28, 28)).toBe(0);
   });
 });
