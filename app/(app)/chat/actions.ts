@@ -9,6 +9,8 @@ import { findCandidateMatches, type MatchCandidate } from "@/lib/chat/match";
 import { setPriorityOverride, setParked, setTaskEstimate } from "@/app/(app)/tasks/actions";
 import { moveBlock, setPlanMust, removeBlock, splitBlock, reprioritiseFromDay } from "@/app/(app)/plan/actions";
 import { setDayLock } from "@/app/(app)/capacity/actions";
+import { addSchedulingRule } from "@/app/(app)/settings/rules-actions";
+import { sumActualHours, PERIOD_LABELS } from "@/lib/chat/history-query";
 import { resolveNewDurationMinutes } from "@/lib/chat/duration-change";
 import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { addDaysToDateStr, localToUtcInstant, mondayOf, parseHHMM, utcInstantToLocal } from "@/lib/time";
@@ -348,6 +350,39 @@ export async function sendChatMessage(
       await logChatTurn(persist, supabase, user.id, weekStart, message, text);
       return { text, proposal: null };
     }
+  }
+
+  if (action.type === "add_rule") {
+    try {
+      await addSchedulingRule(action.text);
+      const text = modelText ?? `I'll add that as a standing rule: "${action.text}".`;
+      await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+      return { text, proposal: null };
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Couldn't add that rule.";
+      await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+      return { text, proposal: null };
+    }
+  }
+
+  if (action.type === "history_query") {
+    const todayStr = utcInstantToLocal(new Date(), env.appTimezone()).dateStr;
+    let reference: { source: "asana" | "personal"; reference: string } | undefined;
+    if (action.taskName) {
+      const existingNames = await loadExistingTaskNames(supabase, user.id);
+      const candidates = findCandidateMatches(action.taskName, existingNames);
+      if (candidates.length !== 1) {
+        const text = modelText ?? (candidates.length === 0 ? `I couldn't find a task matching "${action.taskName}".` : "Which task do you mean?");
+        await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+        return { text, proposal: null };
+      }
+      reference = { source: candidates[0].source, reference: candidates[0].reference };
+    }
+    const { hours, blockCount } = await sumActualHours(supabase, user.id, action.period, todayStr, reference);
+    const subject = action.taskName ? `on ${action.taskName}` : "done in total";
+    const text = `${hours.toFixed(1)}h ${subject} ${PERIOD_LABELS[action.period]}, across ${blockCount} block${blockCount === 1 ? "" : "s"}.`;
+    await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+    return { text, proposal: null };
   }
 
   // action.type === "reprioritise_day" — day-based, not task-based, so there's never ambiguity to resolve; apply immediately like "regenerate".

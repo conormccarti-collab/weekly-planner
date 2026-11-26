@@ -31,7 +31,9 @@ export type ChatAction =
   | { type: "set_estimate"; taskName: string; hours: number }
   | { type: "split_block"; taskName: string; hoursNow: number; remainder: "next-working-day" | "queue" }
   | { type: "reprioritise_day"; day: string | null }
-  | { type: "day_lock"; day: string; locked: boolean; reason: string | null };
+  | { type: "day_lock"; day: string; locked: boolean; reason: string | null }
+  | { type: "add_rule"; text: string }
+  | { type: "history_query"; taskName: string | null; period: "month" | "quarter" | "all" };
 
 /**
  * `text` is the model's own natural-language reply — present whenever it
@@ -254,6 +256,40 @@ const EDIT_TOOLS: Anthropic.Tool[] = [
     },
     strict: true,
   },
+  {
+    name: "propose_add_rule",
+    description:
+      "Use when the user wants to add a standing scheduling rule by sentence — e.g. 'never schedule edits on Fridays' or 'no deep work on Mondays'. The rule's own sentence does the describing; pass it through close to verbatim, don't paraphrase or summarize it.",
+    input_schema: {
+      type: "object",
+      properties: { text: { type: "string", description: "The rule, in the user's own words." } },
+      required: ["text"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+  {
+    name: "ask_history",
+    description:
+      "Use when the user asks a factual question about past hours or activity — e.g. 'how many hours have I spent on the Tartan edit?' or 'what did I get done this month?'. Never answer this from the context block or from memory — this tool triggers a real, code-computed query. Never decide which existing task a name refers to — that is done separately in code.",
+    input_schema: {
+      type: "object",
+      properties: {
+        taskName: {
+          type: ["string", "null"],
+          description: "The task/deliverable named, in the user's own words, or null if the question isn't about one specific task (e.g. 'what did I get done this month?').",
+        },
+        period: {
+          type: "string",
+          enum: ["month", "quarter", "all"],
+          description: "The window asked about — 'this month'/'this quarter'/'all time'. Pick the closest of these three for anything else asked (e.g. 'this year' → quarter is too narrow, use all) rather than inventing a new window.",
+        },
+      },
+      required: ["taskName", "period"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
 ];
 
 const SYSTEM_PROMPT = `You are the chat assistant inside a personal weekly-planning app (brief section 9), docked on
@@ -277,6 +313,8 @@ only once you're actually ready to create or change something:
   elsewhere) → propose_split_block.
 - A request to close the gap on a day by pulling what's left on it earlier → propose_reprioritise_day.
 - A request to lock a day as out of office/unavailable, or unlock one → propose_day_lock.
+- A request to add a standing scheduling rule by sentence → propose_add_rule.
+- A factual question about past hours or activity (not the current/next week, which the context block already answers) → ask_history.
 
 A question about the user's week, tasks, or capacity (including "what's at risk?", "what's on Thursday?",
 "is anything sitting over lunch?", or "anything to follow up on?") is answered directly in plain text,
@@ -381,6 +419,12 @@ export async function classifyChatMessage(
     }
     if (toolUse.name === "propose_day_lock") {
       return { type: "day_lock", day: input.day as string, locked: input.locked as boolean, reason: input.reason as string | null };
+    }
+    if (toolUse.name === "propose_add_rule") {
+      return { type: "add_rule", text: input.text as string };
+    }
+    if (toolUse.name === "ask_history") {
+      return { type: "history_query", taskName: input.taskName as string | null, period: input.period as "month" | "quarter" | "all" };
     }
     throw new Error(`Unexpected tool: ${toolUse.name}`);
   })();

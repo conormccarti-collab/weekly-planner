@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addSchedulingRule, removeSchedulingRule, type SchedulingRule } from "./rules-actions";
+import { addSchedulingRule, removeSchedulingRule, setSchedulingRuleActive, type SchedulingRule } from "./rules-actions";
 import { WEEKDAY_LABELS, type Weekday } from "@/lib/settings";
 
 /**
@@ -30,7 +30,10 @@ export function SchedulingRulesForm({ initial }: { initial: SchedulingRule[] }) 
         // page doesn't auto-refetch client state, so show it immediately as
         // freeform (optimistic) and let the next page load correct the tag
         // once the model has actually classified it.
-        setRules((r) => [...r, { id: `pending-${Date.now()}`, text: trimmed, parsedKind: "freeform", parsedWeekday: null, parsedStage: null }]);
+        setRules((r) => [
+          ...r,
+          { id: `pending-${Date.now()}`, text: trimmed, active: true, parsedKind: "freeform", parsedWeekday: null, parsedStage: null, conflict: null, blocksOnExcludedDay: null },
+        ]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't add that rule.");
       }
@@ -42,13 +45,18 @@ export function SchedulingRulesForm({ initial }: { initial: SchedulingRule[] }) 
     startTransition(() => removeSchedulingRule(id));
   }
 
+  function toggleActive(id: string, active: boolean) {
+    setRules((r) => r.map((x) => (x.id === id ? { ...x, active } : x)));
+    startTransition(() => setSchedulingRuleActive(id, active));
+  }
+
   return (
     <section className="rounded-2xl border border-border bg-slate p-5">
       <h2 className="text-sm font-bold text-chalk">Rules &amp; context</h2>
       <p className="mt-1 text-xs text-chalk-dim">
         Standing rules the scheduler follows every week. A rule naming a weekday (optionally one kind of work) is enforced directly by
         Auto-Schedule/Regenerate; anything else is chat-only — the assistant knows it and can flag a conflict, but it won&apos;t change
-        what gets auto-placed.
+        what gets auto-placed. Switch a rule off without deleting it, or add one straight from chat.
       </p>
 
       {error && <p className="mt-2 rounded border border-danger bg-danger-tint px-2 py-1 text-xs text-chalk">{error}</p>}
@@ -56,18 +64,41 @@ export function SchedulingRulesForm({ initial }: { initial: SchedulingRule[] }) 
       <ul className="mt-3 divide-y divide-border rounded-xl border border-border bg-raven">
         {rules.length === 0 && <li className="px-3 py-3 text-xs text-chalk-dim">No rules yet.</li>}
         {rules.map((rule) => (
-          <li key={rule.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-            <span className="text-chalk">{rule.text}</span>
-            <div className="flex items-center gap-2">
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${rule.parsedKind === "avoid_weekday" ? "bg-success-tint text-success" : "bg-surface-hover text-chalk-dim"}`}>
-                {rule.parsedKind === "avoid_weekday"
-                  ? `Enforced: no${rule.parsedStage ? ` ${rule.parsedStage}` : ""} on ${WEEKDAY_LABELS[rule.parsedWeekday as Weekday]}`
-                  : "Chat-only"}
-              </span>
-              <button disabled={pending} onClick={() => remove(rule.id)} className="text-xs text-chalk-dim underline hover:text-danger">
-                Remove
-              </button>
+          <li key={rule.id} className="flex flex-col gap-1.5 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex min-w-0 items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={rule.active}
+                  disabled={pending}
+                  onChange={(e) => toggleActive(rule.id, e.target.checked)}
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+                <span className={rule.active ? "truncate text-chalk" : "truncate text-chalk-dim line-through"}>{rule.text}</span>
+              </label>
+              <div className="flex shrink-0 items-center gap-2">
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    !rule.active ? "bg-surface-hover text-chalk-dim" : rule.parsedKind === "avoid_weekday" ? "bg-success-tint text-success" : "bg-surface-hover text-chalk-dim"
+                  }`}
+                >
+                  {!rule.active
+                    ? "Off"
+                    : rule.parsedKind === "avoid_weekday"
+                      ? `Enforced: no${rule.parsedStage ? ` ${rule.parsedStage}` : ""} on ${WEEKDAY_LABELS[rule.parsedWeekday as Weekday]}`
+                      : "Chat-only"}
+                </span>
+                <button disabled={pending} onClick={() => remove(rule.id)} className="text-xs text-chalk-dim underline hover:text-danger">
+                  Remove
+                </button>
+              </div>
             </div>
+            {rule.conflict && <p className="pl-5 text-[11px] font-medium text-danger">⚠ {rule.conflict}</p>}
+            {rule.blocksOnExcludedDay != null && rule.blocksOnExcludedDay > 0 && (
+              <p className="pl-5 text-[11px] text-chalk-dim">
+                {rule.blocksOnExcludedDay} block{rule.blocksOnExcludedDay === 1 ? "" : "s"} already on that day this week (pinned/protected, so exempt)
+              </p>
+            )}
           </li>
         ))}
       </ul>
