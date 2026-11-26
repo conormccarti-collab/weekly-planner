@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveNewDurationMinutes, resolveEvenSplit } from "@/lib/chat/duration-change";
+import { resolveNewDurationMinutes, resolveEvenSplit, capDistributionToCapacity } from "@/lib/chat/duration-change";
 
 describe("resolveNewDurationMinutes", () => {
   it("keeps the old duration when neither an absolute nor a relative change is given", () => {
@@ -69,5 +69,89 @@ describe("resolveEvenSplit", () => {
     expect(total).toBe(10);
     expect(result[0].hours).toBe(3.25);
     expect(result[1].hours).toBe(3.25);
+  });
+});
+
+describe("capDistributionToCapacity", () => {
+  it("places the full amount when every day has room", () => {
+    const result = capDistributionToCapacity(
+      [
+        { day: "2026-11-28", hours: 7 },
+        { day: "2026-11-29", hours: 7 },
+      ],
+      new Map([
+        ["2026-11-28", 7],
+        ["2026-11-29", 7],
+      ])
+    );
+    expect(result).toEqual({
+      placements: [
+        { day: "2026-11-28", hours: 7 },
+        { day: "2026-11-29", hours: 7 },
+      ],
+      leftoverHours: 0,
+    });
+  });
+
+  it("carries a day's shortfall onto the next named day, but never past that day's own real capacity", () => {
+    // Saturday 7h desired, only 5.95h free (buffer-reduced): 1.05h carries to
+    // Sunday. Sunday's own 7h free can take its own 7h desired OR the carry,
+    // not both uncapped — it's still capped at 7h, and the remaining 1.05h
+    // is honest leftover rather than silently exceeding Sunday's real room.
+    const result = capDistributionToCapacity(
+      [
+        { day: "2026-11-28", hours: 7 },
+        { day: "2026-11-29", hours: 7 },
+      ],
+      new Map([
+        ["2026-11-28", 5.95],
+        ["2026-11-29", 7],
+      ])
+    );
+    expect(result.placements).toEqual([
+      { day: "2026-11-28", hours: 5.95 },
+      { day: "2026-11-29", hours: 7 },
+    ]);
+    expect(result.leftoverHours).toBeCloseTo(1.05, 10);
+  });
+
+  it("returns leftoverHours when even the last day can't absorb the carry", () => {
+    const result = capDistributionToCapacity(
+      [
+        { day: "2026-11-28", hours: 7 },
+        { day: "2026-11-29", hours: 7 },
+      ],
+      new Map([
+        ["2026-11-28", 5.95],
+        ["2026-11-29", 5.95],
+      ])
+    );
+    expect(result.placements).toEqual([
+      { day: "2026-11-28", hours: 5.95 },
+      { day: "2026-11-29", hours: 5.95 },
+    ]);
+    expect(result.leftoverHours).toBeCloseTo(2.1, 10);
+  });
+
+  it("skips a day entirely (no placement) when it has zero free capacity", () => {
+    const result = capDistributionToCapacity(
+      [
+        { day: "2026-11-28", hours: 7 },
+        { day: "2026-11-29", hours: 7 },
+      ],
+      new Map([
+        ["2026-11-28", 0],
+        ["2026-11-29", 14],
+      ])
+    );
+    expect(result).toEqual({
+      placements: [{ day: "2026-11-29", hours: 14 }],
+      leftoverHours: 0,
+    });
+  });
+
+  it("treats a day missing from the capacity map as having no room", () => {
+    const result = capDistributionToCapacity([{ day: "2026-11-28", hours: 5 }], new Map());
+    expect(result).toEqual({ placements: [], leftoverHours: 5 });
   });
 });

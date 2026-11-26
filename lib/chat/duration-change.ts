@@ -26,6 +26,34 @@ export function resolveNewDurationMinutes(
  * entry so the days still sum to exactly the real total. An explicit entry
  * is never touched — only entries the model left null get a share.
  */
+/**
+ * A day's buffer-reduced real capacity can be smaller than its even share
+ * — Saturday's "half of 14h" can be more than Saturday actually has room
+ * for once the buffer setting is honoured. Rather than erroring outright
+ * (resolveDrop's redirect path only succeeds on an exact full fit, and
+ * distribute_block deliberately can't let one day's overflow spill into
+ * another day that has its own separate entry — see confirmDistributeBlock),
+ * this caps each day at its real free capacity and carries whatever doesn't
+ * fit forward to the next named day, same as a human splitting a task
+ * across a week would. Anything still left over after the last named day
+ * is returned as `leftoverHours`, for the caller to queue rather than drop.
+ */
+export function capDistributionToCapacity(
+  distribution: { day: string; hours: number }[],
+  freeHoursByDay: Map<string, number>
+): { placements: { day: string; hours: number }[]; leftoverHours: number } {
+  let carry = 0;
+  const placements: { day: string; hours: number }[] = [];
+  for (const { day, hours } of distribution) {
+    const desired = hours + carry;
+    const free = Math.max(0, freeHoursByDay.get(day) ?? 0);
+    const toPlace = Math.min(desired, free);
+    if (toPlace > 0) placements.push({ day, hours: toPlace });
+    carry = desired - toPlace;
+  }
+  return { placements, leftoverHours: carry };
+}
+
 export function resolveEvenSplit(
   totalHours: number,
   distribution: { day: string; hours: number | null }[]

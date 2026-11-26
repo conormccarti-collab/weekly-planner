@@ -8,12 +8,12 @@ import { buildChatContext, loadExistingTaskNames } from "@/lib/chat/context";
 import { findCandidateMatches, type MatchCandidate } from "@/lib/chat/match";
 import { setPriorityOverride, setParked, setTaskEstimate } from "@/app/(app)/tasks/actions";
 import { moveBlock, setPlanMust, removeBlock, splitBlock, reprioritiseFromDay, buildDropContext, applyDropChanges } from "@/app/(app)/plan/actions";
-import { resolveDrop } from "@/lib/resolve-drop";
+import { resolveDrop, freeGapsForDay, obstacleRangesForDay } from "@/lib/resolve-drop";
 import { loadSettings } from "@/lib/settings-data";
 import { setDayLock } from "@/app/(app)/capacity/actions";
 import { addSchedulingRule } from "@/app/(app)/settings/rules-actions";
 import { sumActualHours, PERIOD_LABELS } from "@/lib/chat/history-query";
-import { resolveNewDurationMinutes, resolveEvenSplit } from "@/lib/chat/duration-change";
+import { resolveNewDurationMinutes, resolveEvenSplit, capDistributionToCapacity } from "@/lib/chat/duration-change";
 import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { addDaysToDateStr, localToUtcInstant, mondayOf, parseHHMM, utcInstantToLocal, weekdayOfDateStr } from "@/lib/time";
 import { env } from "@/lib/env";
@@ -654,8 +654,37 @@ export async function confirmDistributeBlock(
     .in("status", ["planned", "suggested"]);
 
   const settings = await loadSettings(supabase, user.id);
+
+  // Each named day's real free room — the same free-gap calculation
+  // lib/work-ahead-fill.ts's freeBlocksFromCurrentPlacements uses (lunch,
+  // the buffer setting, and every other already-placed block, via
+  // obstacleRangesForDay/freeGapsForDay), computed fresh after the clear
+  // above so this task's own old hours never count against itself.
+  // (capacityHours/plannedCapacityHours on DayCapacityView are NOT "how
+  // much is already scheduled" — plannedCapacityHours is capacityHours
+  // scaled by the planning-percentage setting alone, nothing to do with
+  // actual placed work, so that difference is the wrong figure here.) A
+  // day's desired share that doesn't fit is capped and carried onto the
+  // next named day rather than left to resolveDrop's redirect path, which
+  // only ever succeeds on an exact full fit and otherwise fails outright
+  // instead of placing the part that does fit.
+  const freeHoursByDay = new Map<string, number>();
+  for (const { day } of resolvedDistribution) {
+    if (freeHoursByDay.has(day)) continue;
+    const { days, blocks } = await buildDropContext(supabase, user.id, day, null);
+    const dayShape = days.find((d) => d.day === day);
+    if (!dayShape) continue;
+    const dayBlocks = blocks.filter((b) => b.day === day);
+    const freeMinutes = freeGapsForDay(dayShape, obstacleRangesForDay(dayShape, dayBlocks, () => true)).reduce(
+      (sum, g) => sum + (g.endMinutes - g.startMinutes),
+      0
+    );
+    freeHoursByDay.set(day, freeMinutes / 60);
+  }
+  const { placements, leftoverHours } = capDistributionToCapacity(resolvedDistribution, freeHoursByDay);
+
   const summaries: string[] = [];
-  for (const { day, hours } of resolvedDistribution) {
+  for (const { day, hours } of placements) {
     const { days, blocks } = await buildDropContext(supabase, user.id, day, null);
     const dayShape = days.find((d) => d.day === day);
     if (!dayShape) throw new Error(`${day} isn't available to plan into.`);
@@ -670,6 +699,22 @@ export async function confirmDistributeBlock(
     if (!result.ok) throw new Error(result.reason);
     await applyDropChanges(supabase, user.id, null, result.changes);
     summaries.push(result.summary);
+  }
+
+  if (leftoverHours > 0) {
+    // Named days didn't have room for all of it — queued rather than
+    // dropped, same as any other task that doesn't fully fit this week.
+    await supabase.from("plan_items").insert({
+      user_id: user.id,
+      week_start: mondayOf(resolvedDistribution[resolvedDistribution.length - 1].day),
+      source,
+      reference,
+      day: null,
+      hours: null,
+      must: false,
+      status: "planned",
+    });
+    summaries.push(`${Math.round(leftoverHours * 100) / 100}h didn't fit on those days and is back in the unscheduled queue.`);
   }
 
   revalidatePath("/");
