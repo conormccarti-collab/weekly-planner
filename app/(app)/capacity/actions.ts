@@ -101,3 +101,29 @@ export async function setDayLock(date: string, locked: boolean, reason?: string)
 
   revalidatePath("/");
 }
+
+/**
+ * The complement to setDayLock: marks (or clears) a single otherwise
+ * non-working date (a weekend, or any weekday outside settings.working_days)
+ * as a real working day — getWeekCapacity ORs it into isWorkingDay, so it
+ * gets real capacity and is eligible for auto-placement/Re-prioritise like
+ * any other day. A manual lock still wins if both exist on the same date.
+ */
+export async function setWorkingDayOverride(date: string, enabled: boolean, reason?: string) {
+  const supabase = await createClient();
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
+  if (!user) {
+    throw new Error("Not signed in");
+  }
+
+  if (enabled) {
+    const { error } = await supabase.from("working_day_overrides").upsert({ user_id: user.id, date, reason: reason ?? null });
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("working_day_overrides").delete().eq("user_id", user.id).eq("date", date);
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath("/");
+}

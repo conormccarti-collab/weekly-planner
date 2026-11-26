@@ -6,6 +6,7 @@ import { WEEKDAY_LABELS } from "@/lib/settings";
 import { DayStartBadge } from "@/components/day-start-badge";
 import { LunchOverrideBadge } from "@/components/lunch-override-badge";
 import { DayLockControl } from "@/components/day-lock-control";
+import { WorkingDayOverrideControl } from "@/components/working-day-override-control";
 import { EntryRow } from "@/components/week/entry-row";
 import type { ShootMarker } from "@/lib/asana/shoots";
 
@@ -108,6 +109,7 @@ export function DayCard({
             + Block
           </button>
           <DayLockControl day={day} />
+          <WorkingDayOverrideControl day={day} />
         </div>
       </div>
 

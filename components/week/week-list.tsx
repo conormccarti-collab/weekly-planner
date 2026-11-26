@@ -30,6 +30,7 @@ import { WEEKDAY_LABELS } from "@/lib/settings";
 import { WeekTabs } from "@/components/week/week-tabs";
 import { StatsStrip } from "@/components/week/stats-strip";
 import { DayCard, type DayRowItem } from "@/components/week/day-card";
+import { WorkingDayOverrideControl } from "@/components/working-day-override-control";
 import { UnscheduledQueue } from "@/components/week/unscheduled-queue";
 import { EditEntryModal } from "@/components/week/edit-entry-modal";
 import { PlaceModal } from "@/components/week/place-modal";
@@ -311,13 +312,23 @@ export function WeekList({
       </div>
 
       <div className="space-y-3">
-        {activeDays
+        {activeDays.map((day) =>
           // A locked date stays visible (with its "Out of office" badge and
           // lock control) even though getWeekCapacity reports isWorkingDay:
-          // false for it — only an ordinary non-working day (weekend) is
-          // hidden here.
-          .filter((d) => d.isWorkingDay || d.isLocked)
-          .map((day) => (
+          // false for it. An ordinary non-working day (weekend) collapses to
+          // a one-line row instead of disappearing entirely, since it's the
+          // only way to reach "Work this day" for it in the first place.
+          !day.isWorkingDay && !day.isLocked ? (
+            <div
+              key={day.dateStr}
+              className="flex items-center justify-between rounded-xl border border-dashed border-border px-3 py-2 text-xs text-chalk-dim"
+            >
+              <span>
+                {WEEKDAY_LABELS[day.weekday]} {day.dateStr} · not a working day
+              </span>
+              <WorkingDayOverrideControl day={day} />
+            </div>
+          ) : (
             <DayCard
               key={day.dateStr}
               day={day}
@@ -337,7 +348,8 @@ export function WeekList({
               onReprioritise={() => reprioritise(day.dateStr)}
               reprioritisePending={reprioritisingDay === day.dateStr}
             />
-          ))}
+          )
+        )}
       </div>
 
       <div className="mt-4">

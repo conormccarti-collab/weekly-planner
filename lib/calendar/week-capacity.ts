@@ -37,6 +37,8 @@ export type DayCapacityView = {
   lockedReason: string | null;
   /** "manual" = set via the day-card's Lock day button; "calendar" = an all-day busy event (incl. a real Google Out of Office entry) already blocks the day — nothing to toggle, the Lock control just shows a label. */
   lockSource: "manual" | "calendar" | null;
+  /** v5: this date isn't in settings.working_days, but a working_day_overrides row marks it worked anyway (e.g. "I'll be working Saturday this week") — isWorkingDay is already true for it, this just flags *why*, so the UI can offer to remove the override. */
+  isWorkingDayOverride: boolean;
   windowStartMinutes: number;
   windowEndMinutes: number;
   capacityHours: number;
@@ -108,7 +110,7 @@ export async function getWeekCapacity(
   const weekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateStr(resolvedWeekStart, i));
   const weekEndExclusive = addDaysToDateStr(resolvedWeekStart, 7);
 
-  const [dayStartsResult, eventsResult, lunchOverridesResult, dayLocksResult] = await Promise.all([
+  const [dayStartsResult, eventsResult, lunchOverridesResult, dayLocksResult, workingDayOverridesResult] = await Promise.all([
     useActualStarts
       ? supabase
           .from("day_starts")
@@ -127,6 +129,8 @@ export async function getWeekCapacity(
     // overrides", never thrown.
     supabase.from("lunch_overrides").select("date, lunch_start_time").eq("user_id", userId).gte("date", resolvedWeekStart).lt("date", weekEndExclusive),
     supabase.from("day_locks").select("date, reason").eq("user_id", userId).gte("date", resolvedWeekStart).lt("date", weekEndExclusive),
+    // Migration 0033 may not be applied yet — same best-effort pattern as day_locks/lunch_overrides above.
+    supabase.from("working_day_overrides").select("date").eq("user_id", userId).gte("date", resolvedWeekStart).lt("date", weekEndExclusive),
   ]);
 
   const dayStartsByDate = new Map(
@@ -137,22 +141,27 @@ export async function getWeekCapacity(
     (lunchOverridesResult.data ?? []).map((row) => [row.date as string, row.lunch_start_time as string])
   );
   const dayLocksByDate = new Map((dayLocksResult.data ?? []).map((row) => [row.date as string, (row.reason as string | null) ?? null]));
+  const workingDayOverrideDates = new Set((workingDayOverridesResult.data ?? []).map((row) => row.date as string));
 
   return weekDates.map((dateStr) => {
     const weekday = weekdayOfDateStr(dateStr);
     const manualLockReason = dayLocksByDate.get(dateStr);
     const isManuallyLocked = dayLocksByDate.has(dateStr);
+    const isWorkingDayOverride = workingDayOverrideDates.has(dateStr);
     // A manual lock overrides the weekly working-days pattern for this one
     // date — the single point every downstream consumer (capacity totals,
     // freeBlocksByDay/dayOrder in plan-build-data.ts, the day-card filter)
-    // already reads, so nothing else needs to know about it directly.
+    // already reads, so nothing else needs to know about it directly. A
+    // working_day_overrides row is the complement: it turns an otherwise
+    // non-working date (a weekend) into a real working one the same way —
+    // a lock still wins if somehow both exist for the same date.
     // An all-day busy calendar event (below) deliberately does NOT also
     // flip this — lib/summary.ts's zeroCapacityReasonFor relies on
     // isWorkingDay staying true there to tell "blocked by a named leave
     // event" apart from "not a working day at all", and the zero-capacity
     // result from computeDayCapacity already excludes it from placement
     // either way.
-    const isWorkingDay = !isManuallyLocked && settings.working_days.includes(weekday);
+    const isWorkingDay = !isManuallyLocked && (settings.working_days.includes(weekday) || isWorkingDayOverride);
 
     const dayStartRow = dayStartsByDate.get(dateStr);
     const defaultStartMinutes = parseHHMM(settings.start_times[weekday] ?? "09:00");
@@ -230,6 +239,7 @@ export async function getWeekCapacity(
       isLocked,
       lockedReason,
       lockSource,
+      isWorkingDayOverride,
       windowStartMinutes: startMinutes,
       windowEndMinutes: startMinutes + settings.hours_per_day * 60 + (settings.lunch_enabled ? settings.lunch_minutes : 0),
       capacityHours: result.capacityHours,
