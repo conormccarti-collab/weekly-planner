@@ -191,7 +191,14 @@ export function WeekList({
       (result) => {
         setEditing(null);
         if (result?.removedSlot) {
-          setRemovedBlock({ source, reference, name: task?.name ?? "Task", weekStart: removeWeekStart, must, ...result.removedSlot });
+          setRemovedBlock({
+            source,
+            reference,
+            name: task ? (task.parentName ? `${task.parentName} — ${task.name}` : task.name) : "Task",
+            weekStart: removeWeekStart,
+            must,
+            ...result.removedSlot,
+          });
           setTimeout(() => setRemovedBlock(null), 8000);
         }
       }
@@ -262,9 +269,19 @@ export function WeekList({
   function copyPlan() {
     const weekDateStrs = new Set(days.map((d) => d.dateStr));
     const blocks = thisWeekTasks.flatMap((t) =>
-      t.placements.filter((p) => weekDateStrs.has(p.day)).map((p) => ({ day: p.day, name: t.name, startMinutes: p.startMinutes, endMinutes: p.endMinutes, status: p.status }))
+      t.placements
+        .filter((p) => weekDateStrs.has(p.day))
+        .map((p) => ({
+          day: p.day,
+          name: t.parentName ? `${t.parentName} — ${t.name}` : t.name,
+          startMinutes: p.startMinutes,
+          endMinutes: p.endMinutes,
+          status: p.status,
+        }))
     );
-    const unplacedForCopy = thisWeekTasks.filter((t) => t.placements.length === 0).map((t) => ({ name: t.name, estimateDisplay: t.estimateDisplay }));
+    const unplacedForCopy = thisWeekTasks
+      .filter((t) => t.placements.length === 0)
+      .map((t) => ({ name: t.parentName ? `${t.parentName} — ${t.name}` : t.name, estimateDisplay: t.estimateDisplay }));
     const text = formatPlanAsText(
       days.map((d) => ({ dateStr: d.dateStr, label: WEEKDAY_LABELS[d.weekday], isWorkingDay: d.isWorkingDay })),
       blocks,

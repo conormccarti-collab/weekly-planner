@@ -14,7 +14,13 @@ import type { NotificationContent } from "@/lib/notification-content";
 export async function gatherNotificationContent(supabase: SupabaseClient, user: User): Promise<NotificationContent> {
   const [morningCheck, data] = await Promise.all([computeMorningCheckFor(supabase, user.id), loadWeekViewData(supabase, user)]);
 
-  const morningCheckOutstanding = morningCheck.items.map((i) => `${i.name} (${i.day}, ${i.plannedHours}h planned)`);
+  // A stage name like "Pre-Edit Review & Brief" is reused across every
+  // deliverable — same "parentName — name" convention as entry-row.tsx.
+  // These lines go straight into an email digest with no UI to
+  // cross-reference, so the ambiguity is worse here than on screen.
+  const morningCheckOutstanding = morningCheck.items.map(
+    (i) => `${i.parentName ? `${i.parentName} — ${i.name}` : i.name} (${i.day}, ${i.plannedHours}h planned)`
+  );
 
   const deadlineRisks: string[] = data.startsThisWeek.map(
     (s) => `${s.deliverableName} — ${s.stage}: start by ${s.latestStartDate}${s.isPastDue ? " (already passed)" : ""}`
@@ -22,7 +28,7 @@ export async function gatherNotificationContent(supabase: SupabaseClient, user: 
   const deadlineCutoff = addWorkingDays(data.todayStr, 2, data.workingDays);
   for (const task of data.thisWeekTasks) {
     if (task.placements.length === 0 && task.dueOn != null && task.dueOn <= deadlineCutoff) {
-      deadlineRisks.push(`${task.name} is due ${task.dueOn} and isn't placed`);
+      deadlineRisks.push(`${task.parentName ? `${task.parentName} — ${task.name}` : task.name} is due ${task.dueOn} and isn't placed`);
     }
   }
 

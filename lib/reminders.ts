@@ -114,12 +114,16 @@ export async function loadReminders(
   const rows = pendingRows ?? [];
   if (rows.length > 0) {
     const gids = rows.map((r) => r.reference as string);
-    const { data: tasks } = await supabase.from("asana_tasks").select("gid, name, completed").in("gid", gids);
-    const taskByGid = new Map((tasks ?? []).map((t) => [t.gid as string, t as { gid: string; name: string; completed: boolean }]));
+    const { data: tasks } = await supabase.from("asana_tasks").select("gid, name, parent_name, completed").in("gid", gids);
+    const taskByGid = new Map(
+      (tasks ?? []).map((t) => [t.gid as string, t as { gid: string; name: string; parent_name: string | null; completed: boolean }])
+    );
     for (const row of rows) {
       const task = taskByGid.get(row.reference as string);
       if (!isCheckoffStillPending(task)) continue;
-      checkoffs.push({ id: row.id as string, gid: row.reference as string, name: task!.name });
+      // A stage name like "Pre-Edit Review & Brief" is reused across every
+      // deliverable — same "parentName — name" convention as entry-row.tsx.
+      checkoffs.push({ id: row.id as string, gid: row.reference as string, name: task!.parent_name ? `${task!.parent_name} — ${task!.name}` : task!.name });
     }
   }
 

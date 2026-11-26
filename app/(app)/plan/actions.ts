@@ -52,7 +52,19 @@ async function loadDayBlocks(
   }));
 }
 
-/** Free blocks for manual placement = the day's calendar-free time minus whatever's already placed there. */
+/**
+ * Free blocks for manual placement = the day's calendar-free time minus
+ * whatever's already placed there.
+ *
+ * A stage name like "Pre-Edit Review & Brief" is reused across every
+ * deliverable (12 of them in this account), so the bare name alone can't
+ * be told apart from any other deliverable's same stage — this feeds
+ * directly into resolveDrop's moving/pushed/split block names, which
+ * surface in its own human-readable summary ("Moved X to...", "Pushed 2
+ * tasks later (X, Y)") wherever that reaches the user or the chat model.
+ * Same "parentName — name" convention as components/week/entry-row.tsx
+ * and lib/chat/context.ts.
+ */
 async function lookupTaskNames(
   supabase: SupabaseClient,
   refs: { source: Source; reference: string }[]
@@ -60,11 +72,12 @@ async function lookupTaskNames(
   const asanaGids = [...new Set(refs.filter((r) => r.source === "asana").map((r) => r.reference))];
   const personalIds = [...new Set(refs.filter((r) => r.source === "personal").map((r) => r.reference))];
   const [asanaRows, personalRows] = await Promise.all([
-    asanaGids.length > 0 ? supabase.from("asana_tasks").select("gid, name").in("gid", asanaGids) : Promise.resolve({ data: [] }),
+    asanaGids.length > 0 ? supabase.from("asana_tasks").select("gid, name, parent_name").in("gid", asanaGids) : Promise.resolve({ data: [] }),
     personalIds.length > 0 ? supabase.from("personal_tasks").select("id, name").in("id", personalIds) : Promise.resolve({ data: [] }),
   ]);
   const nameByKey = new Map<string, string>();
-  for (const r of (asanaRows.data ?? []) as { gid: string; name: string }[]) nameByKey.set(`asana:${r.gid}`, r.name);
+  for (const r of (asanaRows.data ?? []) as { gid: string; name: string; parent_name: string | null }[])
+    nameByKey.set(`asana:${r.gid}`, r.parent_name ? `${r.parent_name} — ${r.name}` : r.name);
   for (const r of (personalRows.data ?? []) as { id: string; name: string }[]) nameByKey.set(`personal:${r.id}`, r.name);
   return nameByKey;
 }

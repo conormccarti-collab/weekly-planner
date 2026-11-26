@@ -34,6 +34,11 @@ type EditDraft =
   | { kind: "set_estimate"; taskName: string; hours: number; candidates: MatchCandidate[]; selected: string | null }
   | { kind: "split_block"; taskName: string; hoursNow: number; remainder: "next-working-day" | "queue"; candidates: MatchCandidate[]; selected: string | null };
 
+/** Same "parentName — name" convention the pickers below already render — a stage name like "Pre-Edit Review & Brief" is reused across every deliverable, so the bare name alone can't identify which one a confirmation message is about. */
+function displayName(c: MatchCandidate): string {
+  return c.parentName ? `${c.parentName} — ${c.name}` : c.name;
+}
+
 /**
  * Week-list rebuild: chat moves from a docked side panel to a bar fixed at
  * the bottom of the Week screen — one of the two ways to change anything now
@@ -155,7 +160,8 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
   function confirmPriority() {
     if (!priorityDraft?.selected) return;
     const [source, reference] = priorityDraft.selected.split(":") as ["asana" | "personal", string];
-    const name = priorityDraft.candidates.find((c) => `${c.source}:${c.reference}` === priorityDraft.selected)?.name ?? priorityDraft.taskName;
+    const selectedCandidate = priorityDraft.candidates.find((c) => `${c.source}:${c.reference}` === priorityDraft.selected);
+    const name = selectedCandidate ? displayName(selectedCandidate) : priorityDraft.taskName;
     startTransition(async () => {
       const text = `Set priority to ${priorityDraft.newPriority} for ${name}.`;
       try {
@@ -172,7 +178,8 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
   function confirmMove() {
     if (!planChangeDraft?.selected) return;
     const [source, reference] = planChangeDraft.selected.split(":") as ["asana" | "personal", string];
-    const name = planChangeDraft.candidates.find((c) => `${c.source}:${c.reference}` === planChangeDraft.selected)?.name ?? planChangeDraft.taskName;
+    const selectedCandidate = planChangeDraft.candidates.find((c) => `${c.source}:${c.reference}` === planChangeDraft.selected);
+    const name = selectedCandidate ? displayName(selectedCandidate) : planChangeDraft.taskName;
     const hours = planChangeDraft.newDurationHours === "" ? null : Number(planChangeDraft.newDurationHours);
     startTransition(async () => {
       const text = `Moved ${name}${planChangeDraft.newDay ? ` to ${planChangeDraft.newDay}` : ""}${hours ? ` (${hours}h)` : ""}.`;
@@ -190,7 +197,8 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
   function confirmDistribute() {
     if (!distributeDraft?.selected) return;
     const [source, reference] = distributeDraft.selected.split(":") as ["asana" | "personal", string];
-    const name = distributeDraft.candidates.find((c) => `${c.source}:${c.reference}` === distributeDraft.selected)?.name ?? distributeDraft.taskName;
+    const selectedCandidate = distributeDraft.candidates.find((c) => `${c.source}:${c.reference}` === distributeDraft.selected);
+    const name = selectedCandidate ? displayName(selectedCandidate) : distributeDraft.taskName;
     startTransition(async () => {
       try {
         const result = await confirmDistributeBlock(source, reference, name, distributeDraft.distribution);
@@ -207,7 +215,8 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
   function confirmEdit() {
     if (!editDraft?.selected) return;
     const [source, reference] = editDraft.selected.split(":") as ["asana" | "personal", string];
-    const name = editDraft.candidates.find((c) => `${c.source}:${c.reference}` === editDraft.selected)?.name ?? editDraft.taskName;
+    const selectedCandidate = editDraft.candidates.find((c) => `${c.source}:${c.reference}` === editDraft.selected);
+    const name = selectedCandidate ? displayName(selectedCandidate) : editDraft.taskName;
     startTransition(async () => {
       let text: string;
       try {
