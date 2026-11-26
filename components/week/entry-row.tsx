@@ -25,6 +25,7 @@ export function EntryRow(
         onSplit: () => void;
         onRemove: (blockId: string, source: Source, reference: string, must: boolean) => void;
         onLock: (blockId: string) => void;
+        onStart: (blockId: string) => void;
         /** Set once this task is done and has a pending "check it off in Asana too" reminder. */
         checkoffReminderId?: string;
         onDismissCheckoff?: (id: string) => void;
@@ -53,7 +54,7 @@ export function EntryRow(
     );
   }
 
-  const { task, placement, onToggleDone, onToggleMust, onEdit, onSplit, onRemove, onLock, checkoffReminderId, onDismissCheckoff } = props;
+  const { task, placement, onToggleDone, onToggleMust, onEdit, onSplit, onRemove, onLock, onStart, checkoffReminderId, onDismissCheckoff } = props;
   const brand = brandColorsFor(task.brand);
   const isSuggested = placement.status === "suggested";
   const isDone = placement.status === "done";
@@ -86,6 +87,14 @@ export function EntryRow(
             </span>
           )}
           {isSuggested && <span className="ml-1 rounded bg-warning-chip px-1 text-[9px] font-normal text-chalk">suggested</span>}
+          {!isDone && placement.startedAt && (
+            <span
+              title={`Started ${new Date(placement.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
+              className="ml-1 rounded bg-info-chip px-1 text-[9px] font-normal text-chalk"
+            >
+              started
+            </span>
+          )}
           {placement.isAhead && (
             <span title="Pulled forward into spare capacity before it was actually due — first to move if something else needs the room" className="ml-1 rounded bg-info-chip px-1 text-[9px] font-normal text-chalk">
               ahead
@@ -115,6 +124,15 @@ export function EntryRow(
           <input type="checkbox" checked={task.must} onChange={() => onToggleMust(task.source, task.reference, task.must)} className="h-3 w-3" />
           Must
         </label>
+        {!isDone && !placement.startedAt && (
+          <button
+            onClick={() => onStart(placement.id)}
+            title="Record when you actually started this block"
+            className="rounded border border-border px-1.5 py-0.5 text-[10px] text-chalk hover:bg-surface-hover"
+          >
+            Start
+          </button>
+        )}
         <button onClick={onEdit} className="rounded border border-border px-1.5 py-0.5 text-[10px] text-chalk hover:bg-surface-hover">
           Edit
         </button>

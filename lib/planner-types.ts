@@ -42,6 +42,8 @@ export type Placement = {
   partCount?: number;
   /** v5 Stage 13a: a work-ahead-fill placement — pulled forward into spare capacity before it was actually due. */
   isAhead: boolean;
+  /** v5 Stage 18a: when the "Start" button was clicked — null until then. */
+  startedAt: string | null;
 };
 
 export type EverythingElseGroup = {

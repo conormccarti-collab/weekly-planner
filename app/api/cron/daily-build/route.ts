@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { refreshDraftWeekFor } from "@/app/(app)/plan/build-actions";
+import { refreshLearnedSuggestions } from "@/lib/plan-pattern-learning";
 import { addDaysToDateStr, mondayOf, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 
@@ -33,6 +34,13 @@ export async function GET(request: Request) {
   const weekStart = mondayOf(utcInstantToLocal(new Date(), env.appTimezone()).dateStr);
   await refreshDraftWeekFor(supabase, user.id, weekStart);
   await refreshDraftWeekFor(supabase, user.id, addDaysToDateStr(weekStart, 7));
+
+  // v5 Stage 18b/c: best-effort — migration 0032 may not be applied yet.
+  try {
+    await refreshLearnedSuggestions(supabase, user.id);
+  } catch (err) {
+    console.error(`daily-build: refreshLearnedSuggestions failed: ${err instanceof Error ? err.message : err}`);
+  }
 
   return NextResponse.json({ ok: true });
 }

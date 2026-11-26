@@ -15,6 +15,7 @@ import {
   splitBlock,
   reprioritiseFromDay,
   fillSlack,
+  startBlock,
 } from "@/app/(app)/plan/actions";
 import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { setTaskEstimate } from "@/app/(app)/tasks/actions";
@@ -220,6 +221,10 @@ export function WeekList({
     runAction(() => approveDraftBlock(blockId));
   }
 
+  function startBlockHandler(blockId: string) {
+    runAction(() => startBlock(blockId));
+  }
+
   function confirmSuggested(blockId: string, source: Source, reference: string, estimateContext: EstimateContext) {
     runAction(() => confirmSuggestedEstimate(blockId, source, reference, estimateContext));
     setEditing(null);
@@ -325,6 +330,7 @@ export function WeekList({
               onSplit={openSplit}
               onRemove={remove}
               onLock={lockBlock}
+              onStart={startBlockHandler}
               checkoffByReference={checkoffByReference}
               onDismissCheckoff={dismissCheckoff}
               onAddBlock={() => setAddingToDay(day.dateStr)}

@@ -12,8 +12,10 @@ import { SameDayCheckList } from "@/components/same-day-check";
 import { SummaryAutoRefresh } from "@/components/summary-auto-refresh";
 import { StartsThisWeekList } from "@/components/starts-this-week";
 import { RemindersList } from "@/components/reminders-list";
+import { SuggestionsList } from "@/components/suggestions-list";
 import { loadChatHistory } from "@/app/(app)/chat/actions";
 import { loadReminders } from "@/lib/reminders";
+import { loadActiveSuggestions } from "@/lib/plan-pattern-learning";
 import { utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 
@@ -40,6 +42,7 @@ export default async function WeekPage() {
     workingDays: data.workingDays,
     plannedProjectGids: data.plannedProjectGids,
   });
+  const suggestions = await loadActiveSuggestions(supabase, user.id);
 
   // The old WeekSummary card's facts, now shown as the first chat message of
   // the day instead of a standalone box, per the user's preference — same
@@ -57,6 +60,7 @@ export default async function WeekPage() {
           {facts.endedNotDone.length > 0 && <SameDayCheckList blocks={facts.endedNotDone} />}
           <StartsThisWeekList items={data.startsThisWeek} />
           <RemindersList data={reminders} />
+          <SuggestionsList data={suggestions} />
           <Dashboard
             weekCapacityHours={data.weekCapacityHours}
             weekPlannedHours={data.weekPlannedHours}

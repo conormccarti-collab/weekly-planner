@@ -37,6 +37,7 @@ export function DayCard({
   onSplit,
   onRemove,
   onLock,
+  onStart,
   onAddBlock,
   onReprioritise,
   reprioritisePending,
@@ -53,6 +54,7 @@ export function DayCard({
   onSplit: (task: PlannerTask, placement: Placement) => void;
   onRemove: (blockId: string, source: Source, reference: string, must: boolean) => void;
   onLock: (blockId: string) => void;
+  onStart: (blockId: string) => void;
   onAddBlock: () => void;
   onReprioritise: () => void;
   reprioritisePending: boolean;
@@ -148,6 +150,7 @@ export function DayCard({
               onSplit={() => onSplit(row.task, row.placement)}
               onRemove={onRemove}
               onLock={onLock}
+              onStart={onStart}
               checkoffReminderId={row.task.source === "asana" ? checkoffByReference.get(row.task.reference) : undefined}
               onDismissCheckoff={onDismissCheckoff}
             />

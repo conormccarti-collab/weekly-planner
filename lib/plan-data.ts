@@ -14,6 +14,7 @@ export type PlacedItem = {
   status: string;
   pinned: boolean;
   isAhead: boolean;
+  startedAt: string | null;
 };
 
 export type UnplacedRef = { source: "asana" | "personal"; reference: string; must: boolean; reason: string | null };
@@ -96,16 +97,18 @@ export async function loadWeekPlan(
       .select("id, source, reference, must, day, hours, actual_hours, status, start_time, end_time, pinned")
       .eq("user_id", userId)
       .eq("week_start", weekStart),
-    // Migration 0030 may not be applied yet — same best-effort pattern as
-    // lunch_overrides/day_locks/scheduling_rules: a failed query here (column
-    // doesn't exist yet) leaves `data` null, treated as "no reasons/ahead-flags stored."
-    supabase.from("plan_items").select("id, reason, is_ahead").eq("user_id", userId).eq("week_start", weekStart),
+    // Migrations 0030/0032 may not be applied yet — same best-effort pattern
+    // as lunch_overrides/day_locks/scheduling_rules: a failed query here
+    // (column doesn't exist yet) leaves `data` null, treated as "no
+    // reasons/ahead-flags/start-times stored."
+    supabase.from("plan_items").select("id, reason, is_ahead, started_at").eq("user_id", userId).eq("week_start", weekStart),
   ]);
 
   const status = (weekResult.data?.status as "draft" | "saved" | undefined) ?? "draft";
   const allRows = itemsResult.data ?? [];
   const reasonById = new Map((reasonResult.data ?? []).map((r) => [r.id as string, r.reason as string | null]));
   const isAheadById = new Map((reasonResult.data ?? []).map((r) => [r.id as string, (r.is_ahead as boolean | null) ?? false]));
+  const startedAtById = new Map((reasonResult.data ?? []).map((r) => [r.id as string, (r.started_at as string | null) ?? null]));
   const movedAwayRefs = new Set(allRows.filter((r) => r.status === "moved").map((r) => `${r.source}:${r.reference}`));
   const rows = allRows.filter((r) => r.status !== "moved");
 
@@ -128,6 +131,7 @@ export async function loadWeekPlan(
         status: r.status as string,
         pinned: (r.pinned as boolean | null) ?? false,
         isAhead: isAheadById.get(r.id as string) ?? false,
+        startedAt: startedAtById.get(r.id as string) ?? null,
       };
     });
 

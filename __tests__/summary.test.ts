@@ -18,6 +18,7 @@ function makePlacement(overrides: Partial<Placement> = {}): Placement {
     isFinal: false,
     pinned: false,
     isAhead: false,
+    startedAt: null,
     ...overrides,
   };
 }

@@ -266,6 +266,7 @@ export async function loadWeekViewData(supabase: SupabaseClient, user: User): Pr
       isFinal: finalBlockIds.has(item.id),
       pinned: item.pinned,
       isAhead: item.isAhead,
+      startedAt: item.startedAt,
     });
     placementsByKey.set(key, list);
   }

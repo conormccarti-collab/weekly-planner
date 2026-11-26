@@ -456,6 +456,24 @@ export async function moveBlock(
 
   await applyDropChanges(supabase, user.id, blockId, result.changes);
 
+  // v5 Stage 18b: best-effort — migration 0032 may not be applied yet, and
+  // a failed insert here must not break the move itself. Logs where the
+  // block actually landed (it can differ from what was requested), the raw
+  // signal the Stage 18 pattern-learner reads later.
+  const landedSlot = landed[0];
+  if (landedSlot) {
+    await supabase.from("plan_events").insert({
+      user_id: user.id,
+      event_type: "moved",
+      source,
+      reference,
+      week_start: weekStart,
+      day: landedSlot.day,
+      start_time: formatHHMM(landedSlot.startMinutes),
+      end_time: formatHHMM(landedSlot.startMinutes + durationMinutes),
+    });
+  }
+
   // A real duration change, or confirming a suggested estimate at all (even
   // at its existing duration), both count as "typing a real estimate" and
   // get written back as the task's confirmed estimate — remembered for the
@@ -855,6 +873,24 @@ export async function removeFromWeek(source: Source, reference: string) {
   const user = await requireUser(supabase);
 
   await supabase.from("plan_items").delete().eq("user_id", user.id).eq("source", source).eq("reference", reference);
+
+  revalidatePath("/");
+}
+
+/**
+ * v5 Stage 18a: records when a block was actually started — distinct from
+ * actual_hours (set on completion, how long it took). Best-effort:
+ * migration 0032 may not be applied yet.
+ */
+export async function startBlock(blockId: string) {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  await supabase
+    .from("plan_items")
+    .update({ started_at: new Date().toISOString() })
+    .eq("id", blockId)
+    .eq("user_id", user.id);
 
   revalidatePath("/");
 }
