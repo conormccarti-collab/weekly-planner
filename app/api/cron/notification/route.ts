@@ -38,7 +38,10 @@ export async function GET(request: Request) {
   }
 
   const todayStr = utcInstantToLocal(new Date(), env.appTimezone()).dateStr;
-  if (!settings.working_days.includes(weekdayOfDateStr(todayStr))) {
+  // Best-effort — migration 0033 may not be applied yet; a failed query here
+  // just means no override, same as getWeekCapacity's own read.
+  const { data: override } = await supabase.from("working_day_overrides").select("date").eq("user_id", user.id).eq("date", todayStr).maybeSingle();
+  if (!settings.working_days.includes(weekdayOfDateStr(todayStr)) && !override) {
     return NextResponse.json({ ok: true, sent: false, reason: "not a working day" });
   }
 

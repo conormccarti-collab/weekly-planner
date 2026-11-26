@@ -13,7 +13,7 @@ import { loadSettings } from "@/lib/settings-data";
 import { setDayLock } from "@/app/(app)/capacity/actions";
 import { addSchedulingRule } from "@/app/(app)/settings/rules-actions";
 import { sumActualHours, PERIOD_LABELS } from "@/lib/chat/history-query";
-import { resolveNewDurationMinutes, resolveEvenSplit, capDistributionToCapacity } from "@/lib/chat/duration-change";
+import { resolveNewDurationMinutes, resolveEvenSplit, capDistributionToCapacity, mergeDuplicateDayEntries } from "@/lib/chat/duration-change";
 import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
 import { addDaysToDateStr, localToUtcInstant, mondayOf, parseHHMM, utcInstantToLocal, weekdayOfDateStr } from "@/lib/time";
 import { env } from "@/lib/env";
@@ -625,6 +625,10 @@ export async function confirmDistributeBlock(
   name: string,
   distribution: { day: string; hours: number | null }[]
 ): Promise<{ summaries: string[] }> {
+  if (distribution.length < 2) {
+    throw new Error("I need at least two days to distribute this task across.");
+  }
+
   const supabase = await createClient();
   const user = await requireUser(supabase);
 
@@ -643,7 +647,10 @@ export async function confirmDistributeBlock(
   if (distribution.some((d) => d.hours == null) && currentTotalHours <= 0) {
     throw new Error("I don't know this task's current total hours, so I can't split it evenly — give me the hours for each day instead.");
   }
-  const resolvedDistribution = resolveEvenSplit(currentTotalHours, distribution);
+  // "3h today and 2h today" — merged before capping so a day's free
+  // capacity is only ever checked against one combined request, not two
+  // independent ones each seeing the same stale free-hours figure.
+  const resolvedDistribution = mergeDuplicateDayEntries(resolveEvenSplit(currentTotalHours, distribution));
 
   await supabase
     .from("plan_items")

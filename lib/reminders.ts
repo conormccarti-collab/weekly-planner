@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Source } from "./resolve-drop";
-import { addWorkingDays, type Weekday } from "./time";
+import { addWorkingDays, daysBetweenDateStrs, type Weekday } from "./time";
+
+/** How long an auto-guessed estimate sits before the morning brief asks you to confirm or correct it. */
+export const UNCONFIRMED_ESTIMATE_NUDGE_DAYS = 2;
 
 export type CheckoffReminder = { id: string; gid: string; name: string };
 export type FollowUpReminder = {
@@ -13,7 +16,21 @@ export type FollowUpReminder = {
   isOverdue: boolean;
 };
 export type NewProjectReminder = { id: string; projectGid: string; projectName: string };
-export type RemindersData = { checkoffs: CheckoffReminder[]; followUps: FollowUpReminder[]; newProjects: NewProjectReminder[] };
+export type UnconfirmedEstimateReminder = {
+  source: Source;
+  reference: string;
+  name: string;
+  hours: number;
+  stage: string | null;
+  focusType: string | null;
+  videoType: string | null;
+};
+export type RemindersData = {
+  checkoffs: CheckoffReminder[];
+  followUps: FollowUpReminder[];
+  newProjects: NewProjectReminder[];
+  unconfirmedEstimates: UnconfirmedEstimateReminder[];
+};
 
 /** Auto-resolve: nothing left to check off once the Asana task is completed, or gone. */
 export function isCheckoffStillPending(task: { completed: boolean } | null | undefined): boolean {
@@ -23,6 +40,22 @@ export function isCheckoffStillPending(task: { completed: boolean } | null | und
 /** Auto-resolve: the nudge is satisfied once the project is added to Settings — no explicit retraction needed. */
 export function isNewProjectReminderStillPending(projectGid: string, plannedProjectGids: string[]): boolean {
   return !plannedProjectGids.includes(projectGid);
+}
+
+/**
+ * Auto-resolve: satisfied the moment the user confirms (or corrects) a real
+ * estimate — `setTaskEstimate` always writes `estimate_origin: "user"`, so
+ * there's nothing to retract here, same shape as the new-project reminder
+ * above. The age check exists so a just-guessed estimate isn't immediately
+ * nagged about — it only surfaces once it's had a couple of real days to
+ * turn out wrong (the exact failure mode that produced tonight's Scott
+ * Dunn mess: a 2.5h guess sat unconfirmed and silently capped a real 14h
+ * task's placement).
+ */
+export function isEstimateStillUnconfirmed(estimateOrigin: string, updatedAtIso: string, todayStr: string): boolean {
+  if (estimateOrigin !== "suggested") return false;
+  const updatedDateStr = updatedAtIso.slice(0, 10);
+  return daysBetweenDateStrs(updatedDateStr, todayStr) >= UNCONFIRMED_ESTIMATE_NUDGE_DAYS;
 }
 
 /** The most common value in the list, or undefined if it's empty. Ties keep whichever is seen first. */
@@ -196,5 +229,51 @@ export async function loadReminders(
     }
   }
 
-  return { checkoffs, followUps, newProjects };
+  // Only a suggested estimate still backing something actually on the
+  // board right now is worth asking about — a guess sitting on long-term
+  // backlog isn't urgent yet and would just be noise.
+  const unconfirmedEstimates: UnconfirmedEstimateReminder[] = [];
+  const { data: suggestedMeta } = await supabase
+    .from("task_meta")
+    .select("source, reference, estimate_hours, estimate_origin, updated_at, stage, focus_type, video_type")
+    .eq("user_id", userId)
+    .eq("estimate_origin", "suggested")
+    .not("estimate_hours", "is", null);
+  const stillUnconfirmed = (suggestedMeta ?? []).filter((m) =>
+    isEstimateStillUnconfirmed(m.estimate_origin as string, m.updated_at as string, opts.todayStr)
+  );
+  if (stillUnconfirmed.length > 0) {
+    const { data: activeRows } = await supabase
+      .from("plan_items")
+      .select("source, reference")
+      .eq("user_id", userId)
+      .in("status", ["planned", "suggested"]);
+    const activeKeys = new Set((activeRows ?? []).map((r) => `${r.source}:${r.reference}`));
+    const relevant = stillUnconfirmed.filter((m) => activeKeys.has(`${m.source}:${m.reference}`));
+    const asanaGids = relevant.filter((m) => m.source === "asana").map((m) => m.reference as string);
+    const personalIds = relevant.filter((m) => m.source === "personal").map((m) => m.reference as string);
+    const [asanaNameRows, personalNameRows] = await Promise.all([
+      asanaGids.length > 0 ? supabase.from("asana_tasks").select("gid, name, parent_name").in("gid", asanaGids) : Promise.resolve({ data: [] }),
+      personalIds.length > 0 ? supabase.from("personal_tasks").select("id, name").in("id", personalIds) : Promise.resolve({ data: [] }),
+    ]);
+    const nameByKey = new Map<string, string>();
+    for (const t of (asanaNameRows.data ?? []) as { gid: string; name: string; parent_name: string | null }[])
+      nameByKey.set(`asana:${t.gid}`, t.parent_name ? `${t.parent_name} — ${t.name}` : t.name);
+    for (const t of (personalNameRows.data ?? []) as { id: string; name: string }[]) nameByKey.set(`personal:${t.id}`, t.name);
+    for (const m of relevant) {
+      const name = nameByKey.get(`${m.source}:${m.reference}`);
+      if (!name) continue; // task itself is gone — nothing left to confirm
+      unconfirmedEstimates.push({
+        source: m.source as Source,
+        reference: m.reference as string,
+        name,
+        hours: Number(m.estimate_hours),
+        stage: (m.stage as string | null) ?? null,
+        focusType: (m.focus_type as string | null) ?? null,
+        videoType: (m.video_type as string | null) ?? null,
+      });
+    }
+  }
+
+  return { checkoffs, followUps, newProjects, unconfirmedEstimates };
 }

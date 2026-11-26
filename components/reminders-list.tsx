@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { addPlannedProject, dismissReminder } from "@/app/(app)/reminders/actions";
+import { setTaskEstimate } from "@/app/(app)/tasks/actions";
 import type { RemindersData } from "@/lib/reminders";
 
 /**
@@ -15,15 +16,27 @@ import type { RemindersData } from "@/lib/reminders";
  * outside the planned-projects workflow (lib/asana/eligibility.ts) — a
  * one-time nudge so it doesn't sit unnoticed in "Outside the workflow" on
  * the Projects page, with an explicit choice either way.
+ *
+ * Unconfirmed-estimate reminders: a guessed estimate (tier 4, "suggested")
+ * still backing something actually on the board a couple of days later —
+ * the exact failure mode that let one bad guess (2.5h for what was really
+ * a 14h task) silently cap real placement until the real number finally
+ * surfaced days later. Resolved the moment it's confirmed or corrected
+ * (setTaskEstimate always writes estimate_origin: "user"), no separate
+ * dismissal needed.
  */
 export function RemindersList({ data }: { data: RemindersData }) {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [addedGids, setAddedGids] = useState<Set<string>>(new Set());
+  const [confirmedKeys, setConfirmedKeys] = useState<Set<string>>(new Set());
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editHours, setEditHours] = useState("");
   const [pending, startTransition] = useTransition();
 
   const newProjects = data.newProjects.filter((p) => !dismissedIds.has(p.id) && !addedGids.has(p.projectGid));
+  const unconfirmedEstimates = data.unconfirmedEstimates.filter((e) => !confirmedKeys.has(`${e.source}:${e.reference}`));
 
-  if (data.followUps.length === 0 && newProjects.length === 0) return null;
+  if (data.followUps.length === 0 && newProjects.length === 0 && unconfirmedEstimates.length === 0) return null;
 
   function dismiss(id: string) {
     setDismissedIds((prev) => new Set(prev).add(id));
@@ -36,6 +49,14 @@ export function RemindersList({ data }: { data: RemindersData }) {
     setAddedGids((prev) => new Set(prev).add(gid));
     startTransition(async () => {
       await addPlannedProject(gid);
+    });
+  }
+
+  function confirmEstimate(e: RemindersData["unconfirmedEstimates"][number], hours: number) {
+    setConfirmedKeys((prev) => new Set(prev).add(`${e.source}:${e.reference}`));
+    setEditingKey(null);
+    startTransition(async () => {
+      await setTaskEstimate(e.source, e.reference, hours, { stage: e.stage, focusType: e.focusType, videoType: e.videoType });
     });
   }
 
@@ -78,6 +99,70 @@ export function RemindersList({ data }: { data: RemindersData }) {
                 {f.isOverdue && <span className="ml-1 font-medium text-danger">(overdue)</span>}
               </li>
             ))}
+          </ul>
+        </div>
+      )}
+      {unconfirmedEstimates.length > 0 && (
+        <div className="mt-2">
+          <p className="font-medium text-chalk">Confirm these estimates</p>
+          <ul className="mt-1 space-y-1.5 text-xs">
+            {unconfirmedEstimates.map((e) => {
+              const key = `${e.source}:${e.reference}`;
+              return (
+                <li key={key} className="flex items-center justify-between gap-2">
+                  {editingKey === key ? (
+                    <>
+                      <span>{e.name}</span>
+                      <span className="flex shrink-0 items-center gap-1">
+                        <input
+                          type="number"
+                          step="0.25"
+                          autoFocus
+                          value={editHours}
+                          onChange={(ev) => setEditHours(ev.target.value)}
+                          className="w-16 rounded border border-border bg-raven px-1 py-0.5 text-chalk"
+                        />
+                        <button
+                          onClick={() => confirmEstimate(e, Number(editHours))}
+                          disabled={pending || editHours === ""}
+                          className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-on-accent disabled:opacity-50"
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setEditingKey(null)} className="text-chalk-dim underline">
+                          Cancel
+                        </button>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {e.name} <span className="text-chalk-dim">— guessed at {e.hours}h</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={() => confirmEstimate(e, e.hours)}
+                          disabled={pending}
+                          className="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-on-accent disabled:opacity-50"
+                        >
+                          That&apos;s right
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingKey(key);
+                            setEditHours(String(e.hours));
+                          }}
+                          disabled={pending}
+                          className="text-chalk-dim underline disabled:opacity-50"
+                        >
+                          Correct it
+                        </button>
+                      </span>
+                    </>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

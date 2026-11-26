@@ -66,7 +66,10 @@ export async function ensureDayStartRecorded(
   settings: Settings
 ): Promise<void> {
   const now = utcInstantToLocal(new Date(), timezone);
-  const isWorkingDay = settings.working_days.includes(now.weekday);
+  // Best-effort — migration 0033 may not be applied yet; a failed query
+  // here just means no override, same as getWeekCapacity's own read below.
+  const { data: override } = await supabase.from("working_day_overrides").select("date").eq("user_id", userId).eq("date", now.dateStr).maybeSingle();
+  const isWorkingDay = settings.working_days.includes(now.weekday) || !!override;
 
   if (!shouldRecordDayStart(now.minutesFromMidnight, isWorkingDay)) {
     return;

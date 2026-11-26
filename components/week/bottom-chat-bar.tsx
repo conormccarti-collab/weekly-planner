@@ -345,7 +345,13 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
                   />
                 </div>
                 {item.candidates.length > 0 && (
-                  <div className="pl-5">
+                  <div className="space-y-1 pl-5">
+                    {!item.linkedReference && (
+                      <p className="font-medium text-warning">
+                        ⚠ Might already be{item.candidates.length > 1 ? " one of" : ""}:{" "}
+                        {item.candidates.map((c) => (c.parentName ? `${c.parentName} — ${c.name}` : c.name)).join(", ")}
+                      </p>
+                    )}
                     <select
                       value={item.linkedReference ?? ""}
                       onChange={(e) => setMondayDraft((d) => d!.map((x, j) => (j === i ? { ...x, linkedReference: e.target.value || null } : x)))}

@@ -17,16 +17,6 @@ export function resolveNewDurationMinutes(
 }
 
 /**
- * Same principle for propose_distribute_block: "only Scott Dunn images this
- * weekend" (14h, 2 days, no numbers given) means an even split is obvious —
- * the model names the days with hours: null rather than inventing 7-and-7
- * itself, and this divides the real total (looked up from the database,
- * same as above) evenly across just the null entries, rounded to the
- * nearest 15 minutes with any rounding remainder absorbed by the last null
- * entry so the days still sum to exactly the real total. An explicit entry
- * is never touched — only entries the model left null get a share.
- */
-/**
  * A day's buffer-reduced real capacity can be smaller than its even share
  * — Saturday's "half of 14h" can be more than Saturday actually has room
  * for once the buffer setting is honoured. Rather than erroring outright
@@ -54,6 +44,17 @@ export function capDistributionToCapacity(
   return { placements, leftoverHours: carry };
 }
 
+/**
+ * "Only Scott Dunn images this weekend" (14h, 2 days, no numbers given)
+ * means an even split is obvious — the model names the days with
+ * hours: null rather than inventing 7-and-7 itself, and this divides the
+ * real total (looked up from the database, same principle as
+ * resolveNewDurationMinutes above) evenly across just the null entries,
+ * rounded to the nearest 15 minutes with any rounding remainder absorbed
+ * by the last null entry so the days still sum to exactly the real total.
+ * An explicit entry is never touched — only entries the model left null
+ * get a share.
+ */
 export function resolveEvenSplit(
   totalHours: number,
   distribution: { day: string; hours: number | null }[]
@@ -74,4 +75,25 @@ export function resolveEvenSplit(
     assignedToNulls += hours;
     return { day: d.day, hours };
   });
+}
+
+/**
+ * "3h today and 2h today" — capDistributionToCapacity reads a day's free
+ * capacity once per entry without ever decrementing it, so two separate
+ * entries for the same day would each independently see the day's full
+ * free capacity and could together queue more than the day can actually
+ * hold; the real placement loop then applies the first successfully and
+ * throws on the second once it hits the real remaining room, aborting
+ * mid-function after the task's old rows are already gone. Merging same-day
+ * entries first (summing their hours, in first-seen order) means
+ * capDistributionToCapacity only ever sees one request per day.
+ */
+export function mergeDuplicateDayEntries(distribution: { day: string; hours: number }[]): { day: string; hours: number }[] {
+  const hoursByDay = new Map<string, number>();
+  const order: string[] = [];
+  for (const { day, hours } of distribution) {
+    if (!hoursByDay.has(day)) order.push(day);
+    hoursByDay.set(day, (hoursByDay.get(day) ?? 0) + hours);
+  }
+  return order.map((day) => ({ day, hours: hoursByDay.get(day)! }));
 }

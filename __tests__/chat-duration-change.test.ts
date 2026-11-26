@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveNewDurationMinutes, resolveEvenSplit, capDistributionToCapacity } from "@/lib/chat/duration-change";
+import { resolveNewDurationMinutes, resolveEvenSplit, capDistributionToCapacity, mergeDuplicateDayEntries } from "@/lib/chat/duration-change";
 
 describe("resolveNewDurationMinutes", () => {
   it("keeps the old duration when neither an absolute nor a relative change is given", () => {
@@ -153,5 +153,38 @@ describe("capDistributionToCapacity", () => {
   it("treats a day missing from the capacity map as having no room", () => {
     const result = capDistributionToCapacity([{ day: "2026-11-28", hours: 5 }], new Map());
     expect(result).toEqual({ placements: [], leftoverHours: 5 });
+  });
+});
+
+describe("mergeDuplicateDayEntries", () => {
+  it("sums hours for a day named more than once — 'the real underlying bug: 3h today and 2h today'", () => {
+    const result = mergeDuplicateDayEntries([
+      { day: "2026-11-26", hours: 3 },
+      { day: "2026-11-26", hours: 2 },
+    ]);
+    expect(result).toEqual([{ day: "2026-11-26", hours: 5 }]);
+  });
+
+  it("leaves distinct days untouched, in first-seen order", () => {
+    const result = mergeDuplicateDayEntries([
+      { day: "2026-11-28", hours: 7 },
+      { day: "2026-11-29", hours: 7 },
+    ]);
+    expect(result).toEqual([
+      { day: "2026-11-28", hours: 7 },
+      { day: "2026-11-29", hours: 7 },
+    ]);
+  });
+
+  it("merges a repeat wherever it appears, keeping the day's first position", () => {
+    const result = mergeDuplicateDayEntries([
+      { day: "2026-11-28", hours: 2 },
+      { day: "2026-11-29", hours: 4 },
+      { day: "2026-11-28", hours: 3 },
+    ]);
+    expect(result).toEqual([
+      { day: "2026-11-28", hours: 5 },
+      { day: "2026-11-29", hours: 4 },
+    ]);
   });
 });
