@@ -12,7 +12,7 @@ export default async function IdeasPage() {
 
   const { data } = await supabase
     .from("ideas")
-    .select("id, title, status, created_at")
+    .select("id, title, status, created_at, expanded_text")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
@@ -21,6 +21,7 @@ export default async function IdeasPage() {
     title: row.title as string,
     status: row.status as string,
     createdAt: (row.created_at as string).slice(0, 10),
+    expandedText: (row.expanded_text as string | null) ?? null,
   }));
 
   const open = ideas.filter((i) => i.status === "open");

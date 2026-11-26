@@ -521,6 +521,32 @@ export async function suggestEstimateHours(taskName: string, stage: string | nul
   }
 }
 
+const EXPAND_IDEA_SYSTEM_PROMPT = `You help a solo video-production lead flesh out a rough idea they jotted
+down for later, into something they could actually forward to a colleague or client over Slack. Given just the
+short title, write 2-4 short sentences that develop it into a concrete, readable pitch: what it is, why it's worth
+doing, and a plausible first step. Don't invent specific numbers, dates, or names that weren't implied by the
+title. Plain prose, no headings or bullet points, no preamble like "Here's an expanded version" — just the
+expanded idea itself, ready to paste.`;
+
+/**
+ * Ideas page, "expand with Claude": a plain completion (no tool call) since
+ * the output is free text to show the user, not a structured action for
+ * code to apply. Throws on failure — the caller has no safe placeholder
+ * text to fall back to, unlike suggestEstimateHours/parseSchedulingRule.
+ */
+export async function expandIdea(title: string): Promise<string> {
+  const response = await getClient().messages.create({
+    model: env.anthropicModel(),
+    max_tokens: 500,
+    system: EXPAND_IDEA_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: title }],
+  });
+  const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === "text");
+  const text = textBlocks.map((b) => b.text).join("\n\n").trim();
+  if (!text) throw new Error("Claude didn't return any text for this idea.");
+  return text;
+}
+
 type RuleWeekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 const RULE_WEEKDAYS: RuleWeekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 

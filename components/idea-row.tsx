@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { convertIdeaToTask, dropIdea } from "@/app/(app)/ideas/actions";
+import { convertIdeaToTask, dropIdea, expandIdea } from "@/app/(app)/ideas/actions";
 
-export type IdeaRowData = { id: string; title: string; status: string; createdAt: string };
+export type IdeaRowData = { id: string; title: string; status: string; createdAt: string; expandedText: string | null };
 
 export function IdeaRow({ idea }: { idea: IdeaRowData }) {
   const [pending, startTransition] = useTransition();
@@ -12,6 +12,36 @@ export function IdeaRow({ idea }: { idea: IdeaRowData }) {
   const [estimateHours, setEstimateHours] = useState("");
   const [priority, setPriority] = useState("");
   const [dueOn, setDueOn] = useState("");
+  const [expandedText, setExpandedText] = useState(idea.expandedText);
+  const [expanding, setExpanding] = useState(false);
+  const [expandError, setExpandError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function expand() {
+    setExpanding(true);
+    setExpandError(null);
+    startTransition(async () => {
+      try {
+        const { expanded } = await expandIdea(idea.id, idea.title);
+        setExpandedText(expanded);
+      } catch (err) {
+        setExpandError(err instanceof Error ? err.message : "Couldn't expand this idea.");
+      } finally {
+        setExpanding(false);
+      }
+    });
+  }
+
+  async function copyForSlack() {
+    if (!expandedText) return;
+    try {
+      await navigator.clipboard.writeText(expandedText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setExpandError("Couldn't copy to the clipboard.");
+    }
+  }
 
   if (idea.status !== "open") {
     return (
@@ -72,11 +102,28 @@ export function IdeaRow({ idea }: { idea: IdeaRowData }) {
 
   return (
     <li className="flex items-center justify-between gap-2 px-5 py-2.5 text-sm hover:bg-surface-hover">
-      <div>
+      <div className="min-w-0">
         <span className="font-bold text-chalk">{idea.title}</span>
         <div className="text-xs text-chalk-dim">Captured {idea.createdAt}</div>
+        {expandedText && (
+          <p className="mt-1.5 max-w-md whitespace-pre-wrap rounded border border-border bg-raven p-2 text-xs text-chalk-dim">{expandedText}</p>
+        )}
+        {expandError && <p className="mt-1 text-xs text-danger">{expandError}</p>}
       </div>
       <div className="flex flex-none items-center gap-2 text-xs">
+        {expandedText ? (
+          <button onClick={copyForSlack} className="rounded-lg border border-border px-3 py-1.5 font-bold text-chalk hover:border-accent">
+            {copied ? "Copied" : "Copy for Slack"}
+          </button>
+        ) : (
+          <button
+            disabled={expanding || pending}
+            onClick={expand}
+            className="rounded-lg border border-border px-3 py-1.5 font-bold text-chalk hover:border-accent disabled:opacity-50"
+          >
+            {expanding ? "Expanding…" : "Expand with Claude"}
+          </button>
+        )}
         <button onClick={() => setConverting(true)} className="rounded-lg bg-accent px-3 py-1.5 font-bold text-on-accent">
           Make a task
         </button>

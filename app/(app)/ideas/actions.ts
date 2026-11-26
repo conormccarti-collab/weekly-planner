@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { expandIdea as expandIdeaWithClaude } from "@/lib/chat/claude";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 async function requireUser(supabase: SupabaseClient): Promise<User> {
@@ -37,6 +38,20 @@ export async function convertIdeaToTask(
 
   revalidatePath("/ideas");
   revalidatePath("/");
+}
+
+/** Brief section 8.4 follow-on: flesh an idea out before it's ready to forward, without touching Asana yet. */
+export async function expandIdea(ideaId: string, title: string): Promise<{ expanded: string }> {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  const expanded = await expandIdeaWithClaude(title);
+
+  const { error } = await supabase.from("ideas").update({ expanded_text: expanded }).eq("id", ideaId).eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/ideas");
+  return { expanded };
 }
 
 export async function dropIdea(ideaId: string) {
