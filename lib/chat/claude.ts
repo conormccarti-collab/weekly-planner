@@ -25,6 +25,7 @@ export type ChatAction =
   | { type: "idea"; items: { title: string }[] }
   | { type: "priority_override"; taskName: string; newPriority: string }
   | { type: "plan_change"; taskName: string; newDay: string | null; newDurationHours: number | null; durationDeltaHours: number | null }
+  | { type: "distribute_block"; taskName: string; distribution: { day: string; hours: number }[] }
   | { type: "must_change"; taskName: string; must: boolean }
   | { type: "remove_block"; taskName: string }
   | { type: "park_change"; taskName: string; parked: boolean }
@@ -136,6 +137,33 @@ const TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["taskName", "newDay", "newDurationHours", "durationDeltaHours"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+  {
+    name: "propose_distribute_block",
+    description:
+      "Use when the user wants to split an already-placed (or currently unplaced) task's hours across TWO OR MORE specific days with explicit hours for each — e.g. 'Move the Scott Dunn edit to the weekend, 6 hours Saturday and 8 hours Sunday.' Only call this once the user has given real hours for each day. If they've only named days with no split, or given a total without saying how to divide it, ASK how to split it instead of calling this — never invent a split yourself. For a move to just one day, use propose_plan_change instead. Never decide which existing task this refers to — that is done separately in code.",
+    input_schema: {
+      type: "object",
+      properties: {
+        taskName: { type: "string", description: "The task being referred to, in the user's own words." },
+        distribution: {
+          type: "array",
+          description: "Each day and how many hours go on it, in the order the user gave them. At least two entries.",
+          items: {
+            type: "object",
+            properties: {
+              day: { type: "string", description: "YYYY-MM-DD, resolved using today's date." },
+              hours: { type: "number", description: "Hours to place on this day." },
+            },
+            required: ["day", "hours"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["taskName", "distribution"],
       additionalProperties: false,
     },
     strict: true,
@@ -305,6 +333,8 @@ only once you're actually ready to create or change something:
 - Something idea-shaped, not an actionable task for this week → propose_ideas.
 - A request to change how important an existing task is → propose_priority_override.
 - A request to move and/or resize an existing placed task → propose_plan_change.
+- A request to split a task's hours across two or more specific days with explicit hours given for
+  each → propose_distribute_block. If hours per day aren't given, ask for the split instead.
 - A request to flag or clear a task's Must status → propose_must_change.
 - A request to take a placed task off the calendar → propose_remove_block.
 - A request to park or unpark a task → propose_park_change.
@@ -392,6 +422,13 @@ export async function classifyChatMessage(
         newDay: input.newDay as string | null,
         newDurationHours: input.newDurationHours as number | null,
         durationDeltaHours: input.durationDeltaHours as number | null,
+      };
+    }
+    if (toolUse.name === "propose_distribute_block") {
+      return {
+        type: "distribute_block",
+        taskName: input.taskName as string,
+        distribution: input.distribution as { day: string; hours: number }[],
       };
     }
     if (toolUse.name === "propose_must_change") {

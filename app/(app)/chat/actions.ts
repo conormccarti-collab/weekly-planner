@@ -7,13 +7,14 @@ import { classifyChatMessage, type ChatHistoryMessage } from "@/lib/chat/claude"
 import { buildChatContext, loadExistingTaskNames } from "@/lib/chat/context";
 import { findCandidateMatches, type MatchCandidate } from "@/lib/chat/match";
 import { setPriorityOverride, setParked, setTaskEstimate } from "@/app/(app)/tasks/actions";
-import { moveBlock, setPlanMust, removeBlock, splitBlock, reprioritiseFromDay } from "@/app/(app)/plan/actions";
+import { moveBlock, setPlanMust, removeBlock, splitBlock, reprioritiseFromDay, resolveAndApplyDrop } from "@/app/(app)/plan/actions";
+import { loadSettings } from "@/lib/settings-data";
 import { setDayLock } from "@/app/(app)/capacity/actions";
 import { addSchedulingRule } from "@/app/(app)/settings/rules-actions";
 import { sumActualHours, PERIOD_LABELS } from "@/lib/chat/history-query";
 import { resolveNewDurationMinutes } from "@/lib/chat/duration-change";
 import { refreshDraftWeek } from "@/app/(app)/plan/build-actions";
-import { addDaysToDateStr, localToUtcInstant, mondayOf, parseHHMM, utcInstantToLocal } from "@/lib/time";
+import { addDaysToDateStr, localToUtcInstant, mondayOf, parseHHMM, utcInstantToLocal, weekdayOfDateStr } from "@/lib/time";
 import { env } from "@/lib/env";
 
 async function requireUser(supabase: SupabaseClient): Promise<User> {
@@ -56,6 +57,7 @@ export type ChatProposalAction =
   | { type: "idea"; items: { title: string }[] }
   | { type: "priority_override"; taskName: string; newPriority: string; candidates: MatchCandidate[] }
   | { type: "plan_change"; taskName: string; newDay: string | null; newDurationHours: number | null; candidates: MatchCandidate[] }
+  | { type: "distribute_block"; taskName: string; distribution: { day: string; hours: number }[]; candidates: MatchCandidate[] }
   | { type: "must_change"; taskName: string; must: boolean; candidates: MatchCandidate[] }
   | { type: "remove_block"; taskName: string; candidates: MatchCandidate[] }
   | { type: "park_change"; taskName: string; parked: boolean; candidates: MatchCandidate[] }
@@ -253,6 +255,32 @@ export async function sendChatMessage(
       text,
       proposal: { type: "plan_change", taskName: action.taskName, newDay: action.newDay, newDurationHours: action.newDurationHours, candidates },
     };
+  }
+
+  if (action.type === "distribute_block") {
+    const existingNames = await loadExistingTaskNames(supabase, user.id);
+    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const hasSplit = action.distribution.length >= 2;
+    if (candidates.length === 1 && hasSplit) {
+      try {
+        const result = await confirmDistributeBlock(candidates[0].source, candidates[0].reference, action.distribution);
+        const text = modelText ?? `${candidates[0].name}: ${result.summaries.join(" ")}`;
+        await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+        return { text, proposal: null };
+      } catch (err) {
+        const text = err instanceof Error ? err.message : "Couldn't split that task the way you asked.";
+        await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+        return { text, proposal: null };
+      }
+    }
+    if (!hasSplit) {
+      const text = modelText ?? `I need at least two days with hours to split ${action.taskName} across — for example "6h Saturday, 8h Sunday".`;
+      await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+      return { text, proposal: null };
+    }
+    const text = modelText ?? `Which task do you mean?`;
+    await logChatTurn(persist, supabase, user.id, weekStart, message, text);
+    return { text, proposal: { type: "distribute_block", taskName: action.taskName, distribution: action.distribution, candidates } };
   }
 
   if (action.type === "must_change") {
@@ -568,6 +596,46 @@ export async function confirmPlanChange(
     focusType: null,
     videoType: null,
   });
+}
+
+/**
+ * "Move the Scott Dunn edit to the weekend, 6 hours Saturday and 8 hours
+ * Sunday" — a full redistribution across specific named days, each with its
+ * own explicit hours (propose_distribute_block already refuses to invent a
+ * split, so by the time this runs the numbers are real, not guessed). Every
+ * existing not-yet-resolved placement for this task is cleared first
+ * (done/behind rows are left alone — real history, not up for relocation),
+ * then each day is placed one at a time through the same insert-and-push
+ * engine (resolveAndApplyDrop) a single drag-drop move already uses, so
+ * whatever's in the way on a target day gets pushed/split exactly like it
+ * would from dragging a block there by hand.
+ */
+export async function confirmDistributeBlock(
+  source: "asana" | "personal",
+  reference: string,
+  distribution: { day: string; hours: number }[]
+): Promise<{ summaries: string[] }> {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+
+  await supabase
+    .from("plan_items")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("source", source)
+    .eq("reference", reference)
+    .in("status", ["planned", "suggested"]);
+
+  const settings = await loadSettings(supabase, user.id);
+  const summaries: string[] = [];
+  for (const { day, hours } of distribution) {
+    const startMinutes = parseHHMM(settings.start_times[weekdayOfDateStr(day)] ?? "09:00");
+    const result = await resolveAndApplyDrop(source, reference, null, Math.round(hours * 60), day, startMinutes);
+    if (!result.ok) throw new Error(result.reason);
+    summaries.push(result.summary);
+  }
+
+  return { summaries };
 }
 
 export async function confirmMustChange(source: "asana" | "personal", reference: string, must: boolean) {

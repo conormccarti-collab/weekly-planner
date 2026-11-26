@@ -8,6 +8,7 @@ import {
   confirmIdeas,
   confirmPriorityOverride,
   confirmPlanChange,
+  confirmDistributeBlock,
   confirmMustChange,
   confirmRemoveBlock,
   confirmParkChange,
@@ -25,6 +26,7 @@ import type { MatchCandidate } from "@/lib/chat/match";
 type HistoryEntry = { kind: "user" | "answer" | "error"; text: string };
 type MondayDraftItem = MondayListProposalItem & { linkedReference: string | null; include: boolean };
 type PlanChangeDraft = { taskName: string; newDay: string; newDurationHours: string; candidates: MatchCandidate[]; selected: string | null };
+type DistributeDraft = { taskName: string; distribution: { day: string; hours: number }[]; candidates: MatchCandidate[]; selected: string | null };
 type EditDraft =
   | { kind: "must_change"; taskName: string; must: boolean; candidates: MatchCandidate[]; selected: string | null }
   | { kind: "remove_block"; taskName: string; candidates: MatchCandidate[]; selected: string | null }
@@ -52,12 +54,13 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
   const [ideaDraft, setIdeaDraft] = useState<string[] | null>(null);
   const [priorityDraft, setPriorityDraft] = useState<{ taskName: string; newPriority: string; candidates: MatchCandidate[]; selected: string | null } | null>(null);
   const [planChangeDraft, setPlanChangeDraft] = useState<PlanChangeDraft | null>(null);
+  const [distributeDraft, setDistributeDraft] = useState<DistributeDraft | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [history, mondayDraft, ideaDraft, priorityDraft, planChangeDraft, editDraft]);
+  }, [history, mondayDraft, ideaDraft, priorityDraft, planChangeDraft, distributeDraft, editDraft]);
 
   function applyAction(action: ChatProposalAction) {
     if (action.type === "monday_list") {
@@ -82,6 +85,13 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
         taskName: action.taskName,
         newDay: action.newDay ?? "",
         newDurationHours: action.newDurationHours != null ? String(action.newDurationHours) : "",
+        candidates: action.candidates,
+        selected: action.candidates[0] ? `${action.candidates[0].source}:${action.candidates[0].reference}` : null,
+      });
+    } else if (action.type === "distribute_block") {
+      setDistributeDraft({
+        taskName: action.taskName,
+        distribution: action.distribution,
         candidates: action.candidates,
         selected: action.candidates[0] ? `${action.candidates[0].source}:${action.candidates[0].reference}` : null,
       });
@@ -177,6 +187,23 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
     });
   }
 
+  function confirmDistribute() {
+    if (!distributeDraft?.selected) return;
+    const [source, reference] = distributeDraft.selected.split(":") as ["asana" | "personal", string];
+    const name = distributeDraft.candidates.find((c) => `${c.source}:${c.reference}` === distributeDraft.selected)?.name ?? distributeDraft.taskName;
+    startTransition(async () => {
+      try {
+        const result = await confirmDistributeBlock(source, reference, distributeDraft.distribution);
+        const text = `${name}: ${result.summaries.join(" ")}`;
+        await appendAssistantMessage(text);
+        setHistory((h) => [...h, { kind: "answer", text }]);
+      } catch (err) {
+        setHistory((h) => [...h, { kind: "error", text: err instanceof Error ? err.message : "Something went wrong." }]);
+      }
+      setDistributeDraft(null);
+    });
+  }
+
   function confirmEdit() {
     if (!editDraft?.selected) return;
     const [source, reference] = editDraft.selected.split(":") as ["asana" | "personal", string];
@@ -220,7 +247,8 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
     });
   }
 
-  const blocked = mondayDraft !== null || ideaDraft !== null || priorityDraft !== null || planChangeDraft !== null || editDraft !== null;
+  const blocked =
+    mondayDraft !== null || ideaDraft !== null || priorityDraft !== null || planChangeDraft !== null || distributeDraft !== null || editDraft !== null;
 
   if (collapsed) {
     return (
@@ -251,7 +279,7 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-3">
-        {history.length === 0 && !mondayDraft && !ideaDraft && !priorityDraft && !planChangeDraft && !editDraft && (
+        {history.length === 0 && !mondayDraft && !ideaDraft && !priorityDraft && !planChangeDraft && !distributeDraft && !editDraft && (
           <p className="text-xs text-chalk-dim">
             Tell me what&apos;s on this week — paste a list, ask what&apos;s at risk, or just talk it through: move things
             around, split a task, flag something Must, or say &quot;regenerate&quot; to rebuild the plan.
@@ -412,6 +440,68 @@ export function BottomChatBar({ initialHistory }: { initialHistory: ChatHistoryE
               <button
                 onClick={confirmMove}
                 disabled={pending || !planChangeDraft.selected}
+                className="rounded bg-accent px-2 py-1 text-on-accent disabled:opacity-50"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        )}
+
+        {distributeDraft && (
+          <div className="space-y-2 rounded border border-info bg-info-tint p-2 text-xs text-chalk">
+            <p className="font-medium text-chalk">Split across days:</p>
+            {distributeDraft.candidates.length === 0 ? (
+              <p className="text-chalk">No matching task found for &quot;{distributeDraft.taskName}&quot;.</p>
+            ) : (
+              <select
+                value={distributeDraft.selected ?? ""}
+                onChange={(e) => setDistributeDraft((d) => (d ? { ...d, selected: e.target.value || null } : d))}
+                className="w-full rounded border border-border bg-slate px-1 py-0.5 text-chalk"
+              >
+                {distributeDraft.candidates.map((c) => (
+                  <option key={`${c.source}:${c.reference}`} value={`${c.source}:${c.reference}`}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {distributeDraft.distribution.map((entry, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <input
+                  type="date"
+                  value={entry.day}
+                  onChange={(e) =>
+                    setDistributeDraft((d) =>
+                      d ? { ...d, distribution: d.distribution.map((row, j) => (j === i ? { ...row, day: e.target.value } : row)) } : d
+                    )
+                  }
+                  className="flex-1 rounded border border-border bg-slate px-1 py-0.5 text-chalk"
+                />
+                <input
+                  type="number"
+                  step="0.25"
+                  placeholder="hours"
+                  value={entry.hours}
+                  onChange={(e) =>
+                    setDistributeDraft((d) =>
+                      d
+                        ? { ...d, distribution: d.distribution.map((row, j) => (j === i ? { ...row, hours: Number(e.target.value) } : row)) }
+                        : d
+                    )
+                  }
+                  className="w-20 rounded border border-border bg-slate px-1 py-0.5 text-chalk"
+                />
+              </div>
+            ))}
+            <p className="text-chalk-dim">Total: {distributeDraft.distribution.reduce((sum, r) => sum + (r.hours || 0), 0)}h</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDistributeDraft(null)} className="text-chalk">
+                Cancel
+              </button>
+              <button
+                onClick={confirmDistribute}
+                disabled={pending || !distributeDraft.selected}
                 className="rounded bg-accent px-2 py-1 text-on-accent disabled:opacity-50"
               >
                 Confirm
