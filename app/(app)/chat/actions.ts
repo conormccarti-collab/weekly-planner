@@ -668,6 +668,15 @@ export async function confirmDistributeBlock(
   // next named day rather than left to resolveDrop's redirect path, which
   // only ever succeeds on an exact full fit and otherwise fails outright
   // instead of placing the part that does fit.
+  //
+  // Only a pinned or Done block counts as a true obstacle here — anything
+  // else is exactly what the placement call below is allowed to push
+  // later via resolveDrop's normal ripple cascade, same as a single-block
+  // drag-drop move already does. Treating every existing block as fixed
+  // (as an earlier version of this function did) meant a long-dated,
+  // unpinned filler block could sit there silently capping this task's
+  // real share, instead of yielding to a request the user actually asked
+  // for.
   const freeHoursByDay = new Map<string, number>();
   for (const { day } of resolvedDistribution) {
     if (freeHoursByDay.has(day)) continue;
@@ -675,7 +684,7 @@ export async function confirmDistributeBlock(
     const dayShape = days.find((d) => d.day === day);
     if (!dayShape) continue;
     const dayBlocks = blocks.filter((b) => b.day === day);
-    const freeMinutes = freeGapsForDay(dayShape, obstacleRangesForDay(dayShape, dayBlocks, () => true)).reduce(
+    const freeMinutes = freeGapsForDay(dayShape, obstacleRangesForDay(dayShape, dayBlocks, (b) => b.pinned || b.done)).reduce(
       (sum, g) => sum + (g.endMinutes - g.startMinutes),
       0
     );
