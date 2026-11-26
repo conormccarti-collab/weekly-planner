@@ -410,7 +410,19 @@ export async function gatherWeekBuildInputs(
       rootRef: t.id,
       stageOrder: 0,
       must,
-      hasHardDeadline: must, // no parent-deliverable publish date concept for personal tasks
+      // A personal task has no parent deliverable to inherit a publish date
+      // from, but its own due_on is a real hard deadline exactly like one —
+      // this used to be `must` only, which meant ANY Asana subtask whose
+      // deliverable had a due date outranked a personal task due today,
+      // regardless of which was actually more urgent (orderCandidatesForPlacement
+      // checks hasHardDeadline before ever comparing dates).
+      hasHardDeadline: must || t.due_on != null,
+      // No multi-stage chain to back-schedule from, so there's no real
+      // "latest start" to compute — the task's own due date is the closest
+      // honest equivalent, and puts it on the same urgency axis as an
+      // Asana stage's back-scheduled latestStartDate instead of always
+      // sorting after it as the undefined fallback would.
+      latestStartDate: t.due_on,
       dueOn: t.due_on,
       priority: t.priority,
       focusType: "shallow",

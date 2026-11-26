@@ -58,6 +58,22 @@ describe("orderCandidatesForPlacement", () => {
     expect(result.map((c) => c.reference)).toEqual(["a", "b"]);
   });
 
+  it("v5: a personal task due today outranks an Asana task from a deliverable due later, once both carry a real hard deadline and latest-start from their own due date", () => {
+    // Regression for a live report: a personal task due today ("Edit SD fam
+    // images") sat unscheduled while an Asana subtask of a deliverable due
+    // days later ("Brian's Edit") claimed the week's capacity first. Root
+    // cause was in plan-build-data.ts, not here — a personal candidate used
+    // to get hasHardDeadline: must only, so it could never outrank ANY
+    // deadline-having Asana work regardless of actual urgency. Fixed by
+    // giving a personal task with a due date the same hasHardDeadline/
+    // latestStartDate treatment an Asana stage gets from its deliverable.
+    const result = orderCandidatesForPlacement([
+      candidate({ reference: "brians-edit", rootRef: "brians-deliverable", hasHardDeadline: true, dueOn: "2026-12-03" }),
+      candidate({ reference: "sd-images", source: "personal", hasHardDeadline: true, latestStartDate: "2026-11-26", dueOn: "2026-11-26" }),
+    ]);
+    expect(result.map((c) => c.reference)).toEqual(["sd-images", "brians-edit"]);
+  });
+
   it("breaks ties by priority, High before Medium before Low before none", () => {
     const result = orderCandidatesForPlacement([
       candidate({ reference: "low", priority: "Low" }),
