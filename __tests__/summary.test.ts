@@ -17,6 +17,7 @@ function makePlacement(overrides: Partial<Placement> = {}): Placement {
     status: "planned",
     isFinal: false,
     pinned: false,
+    isAhead: false,
     ...overrides,
   };
 }

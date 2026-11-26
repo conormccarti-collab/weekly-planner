@@ -86,6 +86,11 @@ export function EntryRow(
             </span>
           )}
           {isSuggested && <span className="ml-1 rounded bg-warning-chip px-1 text-[9px] font-normal text-chalk">suggested</span>}
+          {placement.isAhead && (
+            <span title="Pulled forward into spare capacity before it was actually due — first to move if something else needs the room" className="ml-1 rounded bg-info-chip px-1 text-[9px] font-normal text-chalk">
+              ahead
+            </span>
+          )}
           {task.isBlocked && (
             <span title="Still waiting on a blocker" className="ml-1 rounded bg-danger-tint px-1 text-[9px] font-normal text-danger">
               blocked

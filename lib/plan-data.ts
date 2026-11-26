@@ -13,6 +13,7 @@ export type PlacedItem = {
   must: boolean;
   status: string;
   pinned: boolean;
+  isAhead: boolean;
 };
 
 export type UnplacedRef = { source: "asana" | "personal"; reference: string; must: boolean; reason: string | null };
@@ -97,13 +98,14 @@ export async function loadWeekPlan(
       .eq("week_start", weekStart),
     // Migration 0030 may not be applied yet — same best-effort pattern as
     // lunch_overrides/day_locks/scheduling_rules: a failed query here (column
-    // doesn't exist yet) leaves `data` null, treated as "no reasons stored."
-    supabase.from("plan_items").select("id, reason").eq("user_id", userId).eq("week_start", weekStart),
+    // doesn't exist yet) leaves `data` null, treated as "no reasons/ahead-flags stored."
+    supabase.from("plan_items").select("id, reason, is_ahead").eq("user_id", userId).eq("week_start", weekStart),
   ]);
 
   const status = (weekResult.data?.status as "draft" | "saved" | undefined) ?? "draft";
   const allRows = itemsResult.data ?? [];
   const reasonById = new Map((reasonResult.data ?? []).map((r) => [r.id as string, r.reason as string | null]));
+  const isAheadById = new Map((reasonResult.data ?? []).map((r) => [r.id as string, (r.is_ahead as boolean | null) ?? false]));
   const movedAwayRefs = new Set(allRows.filter((r) => r.status === "moved").map((r) => `${r.source}:${r.reference}`));
   const rows = allRows.filter((r) => r.status !== "moved");
 
@@ -125,6 +127,7 @@ export async function loadWeekPlan(
         must: r.must as boolean,
         status: r.status as string,
         pinned: (r.pinned as boolean | null) ?? false,
+        isAhead: isAheadById.get(r.id as string) ?? false,
       };
     });
 

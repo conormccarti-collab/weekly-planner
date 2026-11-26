@@ -1058,22 +1058,23 @@ export async function splitBlock(
 
 /**
  * Work-ahead-fill: when `weekStart` has slack, pull forward extra eligible
- * work instead of leaving it empty. Explicit button only — never runs as
- * part of the normal build. Candidate pool is next week's own eligible
- * queue (gatherWeekBuildInputs' own eligibility gates: not parked, not
- * blocked, not stale), minus anything already placed somewhere — the full
- * backlog beyond that is a further reach not included here.
+ * work instead of leaving it empty, marking what lands this way `is_ahead`
+ * (v5 Stage 13a) so it reads as optional/pulled-forward, not required.
+ * Candidate pool is next week's own eligible queue (gatherWeekBuildInputs'
+ * own eligibility gates: not parked, not blocked, not stale), minus
+ * anything already placed somewhere — the full backlog beyond that is a
+ * further reach not included here. Shared by the explicit "Fill slack"
+ * button (`fillSlack` below) and the normal build, which now also runs this
+ * automatically once required placement is done (`build-actions.ts`).
  */
-export async function fillSlack(weekStart: string): Promise<{ filledHours: number; count: number }> {
-  const supabase = await createClient();
-  const user = await requireUser(supabase);
+export async function runWorkAheadFill(supabase: SupabaseClient, userId: string, weekStart: string): Promise<{ filledHours: number; count: number }> {
   const followingWeekStart = addDaysToDateStr(weekStart, 7);
   const weekEndExclusive = addDaysToDateStr(weekStart, 7);
 
   const [{ days, blocks }, nextWeekInputs, placedRows] = await Promise.all([
-    buildDropContext(supabase, user.id, weekStart, null),
-    gatherWeekBuildInputs(supabase, user.id, followingWeekStart),
-    supabase.from("plan_items").select("source, reference").eq("user_id", user.id).in("week_start", [weekStart, followingWeekStart]).not("day", "is", null),
+    buildDropContext(supabase, userId, weekStart, null),
+    gatherWeekBuildInputs(supabase, userId, followingWeekStart),
+    supabase.from("plan_items").select("source, reference").eq("user_id", userId).in("week_start", [weekStart, followingWeekStart]).not("day", "is", null),
   ]);
 
   const thisWeekDays = days.filter((d) => d.day >= weekStart && d.day < weekEndExclusive);
@@ -1099,16 +1100,35 @@ export async function fillSlack(weekStart: string): Promise<{ filledHours: numbe
     pinned: false,
     ...(p.partIndex ? { partIndex: p.partIndex, partCount: p.partCount } : {}),
   }));
-  await applyDropChanges(supabase, user.id, null, changes);
+  await applyDropChanges(supabase, userId, null, changes);
 
   const filledRefs = [...new Set(placements.map((p) => `${p.source}:${p.reference}`))];
   await Promise.all(
     filledRefs.map((key) => {
       const [source, reference] = key.split(":") as [Source, string];
-      return removeUnplacedRow(supabase, user.id, followingWeekStart, source, reference);
+      return removeUnplacedRow(supabase, userId, followingWeekStart, source, reference);
     })
   );
 
-  revalidatePath("/");
+  // Best-effort — migration 0030 may not be applied yet; a failure here
+  // must not undo the placement itself, just the "ahead" label on it.
+  await supabase
+    .from("plan_items")
+    .update({ is_ahead: true })
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .in(
+      "reference",
+      filledRefs.map((k) => k.split(":")[1])
+    );
+
   return { filledHours, count: filledRefs.length };
+}
+
+export async function fillSlack(weekStart: string): Promise<{ filledHours: number; count: number }> {
+  const supabase = await createClient();
+  const user = await requireUser(supabase);
+  const result = await runWorkAheadFill(supabase, user.id, weekStart);
+  revalidatePath("/");
+  return result;
 }

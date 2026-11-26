@@ -4,6 +4,7 @@ import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { buildWeekPlan } from "@/lib/plan-build";
 import { gatherWeekBuildInputs } from "@/lib/plan-build-data";
+import { runWorkAheadFill } from "@/app/(app)/plan/actions";
 import { addDaysToDateStr, formatHHMM, utcInstantToLocal } from "@/lib/time";
 import { env } from "@/lib/env";
 
@@ -142,6 +143,17 @@ export async function refreshDraftWeekFor(supabase: SupabaseClient, userId: stri
   // Best-effort — if migration 0022 isn't applied yet this column write
   // fails silently and every call just rebuilds unconditionally until it is.
   await supabase.from("weeks").update({ input_hash: inputs.inputHash }).eq("user_id", userId).eq("week_start", weekStart);
+
+  // v5 Stage 13a: "once everything required is placed, remaining capacity
+  // is filled with the next unstarted stage of the earliest-due
+  // deliverables, marked ahead." Runs automatically now, not just via the
+  // explicit "Fill slack" button — a failure here must not undo the
+  // required placement that just succeeded above.
+  try {
+    await runWorkAheadFill(supabase, userId, weekStart);
+  } catch (err) {
+    console.error(`refreshDraftWeek: work-ahead-fill failed for ${weekStart}: ${err instanceof Error ? err.message : err}`);
+  }
 }
 
 /** Session-based wrapper for call sites that already have a signed-in request (chat, the Regenerate button). */

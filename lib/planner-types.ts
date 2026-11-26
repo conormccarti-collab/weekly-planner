@@ -40,6 +40,8 @@ export type Placement = {
   /** v5 Stage 12g §B: set only when this task has more than one placed block this week — "Part 2 of 5". */
   partIndex?: number;
   partCount?: number;
+  /** v5 Stage 13a: a work-ahead-fill placement — pulled forward into spare capacity before it was actually due. */
+  isAhead: boolean;
 };
 
 export type EverythingElseGroup = {
