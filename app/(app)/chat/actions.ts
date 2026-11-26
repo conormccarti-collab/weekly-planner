@@ -190,7 +190,7 @@ export async function sendChatMessage(
 
   if (action.type === "priority_override") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     if (candidates.length === 1) {
       await setPriorityOverride(candidates[0].source, candidates[0].reference, action.newPriority);
       const text = modelText ?? `Set priority to ${action.newPriority} for ${candidates[0].name}.`;
@@ -204,7 +204,7 @@ export async function sendChatMessage(
 
   if (action.type === "plan_change") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     // v5 (Week-view audit fix): used to also require `action.newDay` here,
     // so a resize-only request ("give it another hour") could never
     // auto-confirm even with one unambiguous match — it fell through to the
@@ -260,7 +260,7 @@ export async function sendChatMessage(
 
   if (action.type === "distribute_block") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     const hasSplit = action.distribution.length >= 2;
     if (candidates.length === 1 && hasSplit) {
       try {
@@ -286,7 +286,7 @@ export async function sendChatMessage(
 
   if (action.type === "must_change") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     if (candidates.length === 1) {
       await setPlanMust(weekStart, candidates[0].source, candidates[0].reference, action.must);
       const text = modelText ?? `${action.must ? "Flagged" : "Cleared Must on"} ${candidates[0].name}${action.must ? " as Must" : ""}.`;
@@ -300,7 +300,7 @@ export async function sendChatMessage(
 
   if (action.type === "remove_block") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     if (candidates.length === 1) {
       const resultText = await removeMatchedBlock(supabase, user.id, weekStart, candidates[0]);
       const text = modelText ?? resultText;
@@ -314,7 +314,7 @@ export async function sendChatMessage(
 
   if (action.type === "park_change") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     if (candidates.length === 1) {
       await setParked(candidates[0].source, candidates[0].reference, action.parked);
       const text = modelText ?? `${action.parked ? "Parked" : "Unparked"} ${candidates[0].name}.`;
@@ -328,7 +328,7 @@ export async function sendChatMessage(
 
   if (action.type === "set_estimate") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     if (candidates.length === 1) {
       // No stage/focus/video-type context is cheaply available for an
       // arbitrary name match here, so the "learned" tier won't pick this up
@@ -346,7 +346,7 @@ export async function sendChatMessage(
 
   if (action.type === "split_block") {
     const existingNames = await loadExistingTaskNames(supabase, user.id);
-    const candidates = findCandidateMatches(action.taskName, existingNames);
+    const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
     if (candidates.length === 1) {
       try {
         const resultText = await splitMatchedBlock(supabase, user.id, candidates[0], action.hoursNow, action.remainder);
@@ -399,7 +399,7 @@ export async function sendChatMessage(
     let reference: { source: "asana" | "personal"; reference: string } | undefined;
     if (action.taskName) {
       const existingNames = await loadExistingTaskNames(supabase, user.id);
-      const candidates = findCandidateMatches(action.taskName, existingNames);
+      const candidates = findCandidateMatches(action.taskName, existingNames, { includeTies: true });
       if (candidates.length !== 1) {
         const text = modelText ?? (candidates.length === 0 ? `I couldn't find a task matching "${action.taskName}".` : "Which task do you mean?");
         await logChatTurn(persist, supabase, user.id, weekStart, message, text);

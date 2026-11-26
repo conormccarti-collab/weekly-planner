@@ -66,3 +66,22 @@ describe("findCandidateMatches — same-named stages across different deliverabl
     expect(result.length).toBeGreaterThan(1);
   });
 });
+
+describe("findCandidateMatches — includeTies", () => {
+  const manyTied = [
+    { source: "asana" as const, reference: "1", name: "Pre-Edit Review & Brief", parentName: null },
+    { source: "asana" as const, reference: "2", name: "Pre-Edit Review & Brief", parentName: null },
+    { source: "asana" as const, reference: "3", name: "Pre-Edit Review & Brief", parentName: null },
+    { source: "asana" as const, reference: "4", name: "Pre-Edit Review & Brief", parentName: null },
+  ];
+
+  it("without includeTies, a tie is still cut to the plain limit (the Monday-list best-guess-link behavior)", () => {
+    const result = findCandidateMatches("pre-edit review and brief", manyTied, { minScore: 0.1, limit: 3 });
+    expect(result).toHaveLength(3);
+  });
+
+  it("with includeTies, every candidate tied at the cutoff score is kept, not just the first `limit` — so the disambiguation picker can actually offer the one really meant", () => {
+    const result = findCandidateMatches("pre-edit review and brief", manyTied, { minScore: 0.1, limit: 3, includeTies: true });
+    expect(result).toHaveLength(4);
+  });
+});

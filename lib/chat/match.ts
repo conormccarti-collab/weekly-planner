@@ -45,25 +45,36 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  * auto-applying to whichever happened to land as the sole survivor. Folding
  * `parentName` into the candidate text fixes the case that actually
  * matters — a query that names the deliverable now scores that candidate
- * higher instead of tying with every other same-named stage. It doesn't
- * fully solve a query that names *no* deliverable at all: with several
- * same-named candidates still tied, `limit` can still arbitrarily cut
- * which ones are offered — a known, lesser residual gap, left alone here
- * since `limit` is also relied on elsewhere (e.g. the Monday-list
- * best-guess link) to mean a hard cap, not "every tied candidate."
+ * higher instead of tying with every other same-named stage.
+ *
+ * `includeTies`: when a query names *no* deliverable at all, several
+ * same-named candidates can still tie — the caller always ends up asking
+ * rather than guessing (candidates.length is never 1 in that case), but
+ * the plain `limit` cutoff below would arbitrarily show only `limit` of
+ * however many are tied, possibly missing the one actually meant from the
+ * picker. Every chat disambiguation call site passes this; the one
+ * exception is the Monday-list's own best-guess link, which deliberately
+ * wants `limit` to mean a hard cap on how many candidates to suggest, not
+ * "every tied one."
  */
 export function findCandidateMatches(
   lineText: string,
   existing: ExistingTaskName[],
-  options?: { limit?: number; minScore?: number }
+  options?: { limit?: number; minScore?: number; includeTies?: boolean }
 ): MatchCandidate[] {
   const limit = options?.limit ?? 3;
   const minScore = options?.minScore ?? 0.3;
   const lineTokens = tokenize(lineText);
 
-  return existing
+  const scored = existing
     .map((e) => ({ ...e, score: jaccard(lineTokens, tokenize(e.parentName ? `${e.parentName} ${e.name}` : e.name)) }))
     .filter((c) => c.score >= minScore)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
+
+  if (options?.includeTies && scored.length > limit) {
+    const cutoffScore = scored[limit - 1].score;
+    const lastIndexAtCutoff = scored.findIndex((c) => c.score < cutoffScore);
+    return scored.slice(0, lastIndexAtCutoff === -1 ? scored.length : lastIndexAtCutoff);
+  }
+  return scored.slice(0, limit);
 }
