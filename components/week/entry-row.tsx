@@ -89,7 +89,7 @@ export function EntryRow(
           {isSuggested && <span className="ml-1 rounded bg-warning-chip px-1 text-[9px] font-normal text-chalk">suggested</span>}
           {!isDone && placement.startedAt && (
             <span
-              title={`Started ${new Date(placement.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
+              title={`Started ${new Date(placement.startedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
               className="ml-1 rounded bg-info-chip px-1 text-[9px] font-normal text-chalk"
             >
               started
